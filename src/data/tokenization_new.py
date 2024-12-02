@@ -183,6 +183,7 @@ class ConditionTokenizer:
 
     def pad_tokens(self, tokens, noun_masks=None, dependency_matrix=None, aspect_masks=None):
         # max_len = max([len(x) for x in tokens])
+        # print(max_len)
         max_len = self.max_len
         pad_result = torch.full((len(tokens), max_len), self.pad_token_id)
         mask = torch.zeros(pad_result.size(), dtype=torch.bool)
