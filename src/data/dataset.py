@@ -9,11 +9,14 @@ from PIL import Image
 from transformers import AutoTokenizer
 from torchvision import transforms
 import pdb
+import pickle
 
 class Twitter_Dataset(data.Dataset):
     def __init__(self,img_path,infos, split):
         self.path_img = img_path
         self.infos = json.load(open(infos, 'r'))
+        with open('embeddings.pkl', 'rb') as f:
+            self.embeddings = pickle.load(f)
 
         if split == 'train':
             data_set = json.load(
@@ -112,6 +115,7 @@ class Twitter_Dataset(data.Dataset):
         output['head'] = data['head']
         output['short'] = data['short']
         output['polarity'] = data['aspects']['polarity']
+        output['embedding'] = self.embeddings.get(img_id)
         return output
 
 

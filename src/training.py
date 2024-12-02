@@ -79,7 +79,8 @@ def fine_tune(epochs,
                         dependency_matrix=batch['dependency_matrix'].to(device),
                         aesc_infos=aesc_infos,
                         aspect_mask=batch['aspect_mask'].to(device),
-                        short_mask=batch['short_mask'].to(device))
+                        short_mask=batch['short_mask'].to(device),
+                        embedding=batch['embedding'].to(device))
                     # print(outputs.shape, aesc_infos.shape)
                     loss = criterion(outputs, aesc_infos.to(device))
                 print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}'.format(

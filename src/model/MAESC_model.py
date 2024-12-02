@@ -176,22 +176,23 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
                       raw_token_ids=None,
                       first=None,
                       aspect_mask=None,
-                      short_mask=None):
-        dict = self.encoder(input_ids=input_ids,
-                            image_features=image_features,
-                            attention_mask=attention_mask,
-                            output_hidden_states=True,
-                            return_dict=True)
-        encoder_outputs = dict.last_hidden_state
-        hidden_states = dict.hidden_states
-        encoder_mask = attention_mask
-        src_embed_outputs = hidden_states[0]
+                      short_mask=None,
+                      embedding=None):
+        # dict = self.encoder(input_ids=input_ids,
+        #                     image_features=image_features,
+        #                     attention_mask=attention_mask,
+        #                     output_hidden_states=True,
+        #                     return_dict=True)
+        # encoder_outputs = dict.last_hidden_state
+        # hidden_states = dict.hidden_states
+        # encoder_mask = attention_mask
+        # src_embed_outputs = hidden_states[0]
 
-        if self.nn_attention_on:
-            # 获取名词的embedding
-            noun_embed=self.get_noun_embed(encoder_outputs,noun_mask)
-            encoder_outputs=self.noun_attention(encoder_outputs,noun_embed,mode=self.nn_attention_mode)
-        
+        # if self.nn_attention_on:
+        #     # 获取名词的embedding
+        #     noun_embed=self.get_noun_embed(encoder_outputs,noun_mask)
+        #     encoder_outputs=self.noun_attention(encoder_outputs,noun_embed,mode=self.nn_attention_mode)
+        encoder_outputs = embedding
         # gcn
         senti_feature, context_feature,mix_feature=None,None,None
         if self.sentinet_on and self.gcn_on:
@@ -209,16 +210,16 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             outputs = (mix_feature*mask).sum(dim=1) / asp_wn 
             return outputs
         
-        state = BartState(
-            encoder_outputs,
-            encoder_mask,
-            input_ids[:,51:],  #the text features start from index 38, the front are image features.
-            first,
-            src_embed_outputs,
-            mix_feature
-        )
-        # setattr(state, 'tgt_seq_len', tgt_seq_len)
-        return state
+        # state = BartState(
+        #     encoder_outputs,
+        #     encoder_mask,
+        #     input_ids[:,51:],  #the text features start from index 38, the front are image features.
+        #     first,
+        #     src_embed_outputs,
+        #     mix_feature
+        # )
+        # # setattr(state, 'tgt_seq_len', tgt_seq_len)
+        # return state
 
 
     def noun_attention(self,encoder_outputs,noun_embed,mode='multi-head'):
@@ -335,10 +336,11 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             output_attentions=None,
             output_hidden_states=None,
             aspect_mask=None,
-            short_mask=None
+            short_mask=None,
+            embedding=None
     ):
         state = self.prepare_state(input_ids, image_features, noun_mask, attention_mask, dependency_matrix, sentiment_value,\
-                                    aspect_mask=aspect_mask, short_mask=short_mask)
+                                    aspect_mask=aspect_mask, short_mask=short_mask, embedding=embedding)
         
         if self.args.aesc_enabled:
             spans, span_mask = [

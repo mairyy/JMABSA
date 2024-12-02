@@ -54,7 +54,8 @@ def eval(args, model, img_encoder,loader, metric, device):
                 dependency_matrix=batch['dependency_matrix'].to(device),
                 aesc_infos=aesc_infos,
                 aspect_mask=batch['aspect_mask'].to(device),
-                short_mask=batch['short_mask'].to(device))    
+                short_mask=batch['short_mask'].to(device),
+                embedding=batch['embedding'].to(device))    
             targets = aesc_infos.to(device)
             n_test_correct += (torch.argmax(predict, -1) == targets).sum().item()
             n_test_total += len(predict)

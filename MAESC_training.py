@@ -109,32 +109,32 @@ def main(rank, args):
         #                                length_penalty=1.0,
         #                                pad_token_id=eos_token_id,
         #                                restricter=None)
-        if args.trc_on:
-            trc_pretrain_model=TRCPretrain.from_pretrained(
-                args.trc_pretrain_file,
-                config=bart_config,
-                bart_model=args.bart_model,
-                tokenizer=tokenizer,
-                label_ids=label_ids,
-                senti_ids=senti_ids,
-                args=args,
-                error_on_mismatch=False)
-            if args.encoder=='trc':
-                seq2seq_model.encoder.load_state_dict(trc_pretrain_model.encoder.state_dict())
-                for param in model.seq2seq_model.encoder.parmeters():
-                    param.requires_grad = False
-            seq2seq_model.noun_linear.load_state_dict(trc_pretrain_model.noun_linear.state_dict())
-            seq2seq_model.multi_linear.load_state_dict(trc_pretrain_model.multi_linear.state_dict())
-            seq2seq_model.att_linear.load_state_dict(trc_pretrain_model.att_linear.state_dict())
-            seq2seq_model.linear.load_state_dict(trc_pretrain_model.linear.state_dict())
-            seq2seq_model.alpha_linear1.load_state_dict(trc_pretrain_model.alpha_linear1.state_dict())
-            seq2seq_model.alpha_linear2.load_state_dict(trc_pretrain_model.alpha_linear2.state_dict())
-            freezes = ['noun_linear', 'multi_linear', 'att_linear', 'linear', 'alpha_linear1', 'alpha_linear2']
-            for name in freezes:
-                component = getattr(seq2seq_model, name)
-                for param in component.parameters():
-                    param.requires_grad = False
-            logger.info('trc model loaded.')
+        # if args.trc_on:
+        #     trc_pretrain_model=TRCPretrain.from_pretrained(
+        #         args.trc_pretrain_file,
+        #         config=bart_config,
+        #         bart_model=args.bart_model,
+        #         tokenizer=tokenizer,
+        #         label_ids=label_ids,
+        #         senti_ids=senti_ids,
+        #         args=args,
+        #         error_on_mismatch=False)
+        #     if args.encoder=='trc':
+        #         seq2seq_model.encoder.load_state_dict(trc_pretrain_model.encoder.state_dict())
+        #         for param in model.seq2seq_model.encoder.parmeters():
+        #             param.requires_grad = False
+        #     seq2seq_model.noun_linear.load_state_dict(trc_pretrain_model.noun_linear.state_dict())
+        #     seq2seq_model.multi_linear.load_state_dict(trc_pretrain_model.multi_linear.state_dict())
+        #     seq2seq_model.att_linear.load_state_dict(trc_pretrain_model.att_linear.state_dict())
+        #     seq2seq_model.linear.load_state_dict(trc_pretrain_model.linear.state_dict())
+        #     seq2seq_model.alpha_linear1.load_state_dict(trc_pretrain_model.alpha_linear1.state_dict())
+        #     seq2seq_model.alpha_linear2.load_state_dict(trc_pretrain_model.alpha_linear2.state_dict())
+        #     freezes = ['noun_linear', 'multi_linear', 'att_linear', 'linear', 'alpha_linear1', 'alpha_linear2']
+        #     for name in freezes:
+        #         component = getattr(seq2seq_model, name)
+        #         for param in component.parameters():
+        #             param.requires_grad = False
+        #     logger.info('trc model loaded.')
         model = seq2seq_model
     else:
         seq2seq_model = MultiModalBartModel_AESC(bart_config, args,
