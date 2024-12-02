@@ -191,7 +191,7 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             # 获取名词的embedding
             noun_embed=self.get_noun_embed(encoder_outputs,noun_mask)
             encoder_outputs=self.noun_attention(encoder_outputs,noun_embed,mode=self.nn_attention_mode)
-
+        
         # gcn
         senti_feature, context_feature,mix_feature=None,None,None
         if self.sentinet_on and self.gcn_on:

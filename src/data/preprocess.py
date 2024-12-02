@@ -75,6 +75,6 @@ def get_short(path='/Users/admin/Documents/Projects/JMABSA/src/data/twitter2015/
     wf.close()
 
 if __name__ == '__main__':
-    get_short()
+    # get_short()
     get_short('/Users/admin/Documents/Projects/JMABSA/src/data/twitter2015/train.json', 'train.json')
-    get_short('/Users/admin/Documents/Projects/JMABSA/src/data/twitter2015/dev.json', 'dev.json')
+    # get_short('/Users/admin/Documents/Projects/JMABSA/src/data/twitter2015/dev.json', 'dev.json')
