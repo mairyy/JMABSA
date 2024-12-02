@@ -6,6 +6,7 @@ TRC_ckpt
 **/data/jsons
 **/data/TRC
 **/data/twitter2015
+**/data/twitter2015_old
 **/data/twitter2017
 **/resnet/resnet152-b121ed2d.pth
 **/__pycache__/
