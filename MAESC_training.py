@@ -427,11 +427,11 @@ def parse_args():
                         )
     parser.add_argument('--hidden_dim',
                         type=int,
-                        default=768,
+                        default=96,
                         )
     parser.add_argument('--max_token_len',
                         type=int,
-                        default=40,
+                        default=55,
                         )
     args = parser.parse_args()
     if args.encoder=='trc':

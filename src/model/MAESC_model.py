@@ -114,25 +114,26 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         # self.span_loss_fct = Span_loss()
 
         # add
-        self.noun_linear=nn.Linear(768,768)
-        self.multi_linear=nn.Linear(768,768)
-        self.att_linear=nn.Linear(768*2,1)
-        self.attention=Attention(4,768,768)
-        self.linear=nn.Linear(768*2,1)
-        self.linear2=nn.Linear(768*2,1)
+        # self.noun_linear=nn.Linear(768,768)
+        # self.multi_linear=nn.Linear(768,768)
+        # self.att_linear=nn.Linear(768*2,1)
+        # self.attention=Attention(4,768,768)
+        # self.linear=nn.Linear(768*2,1)
+        # self.linear2=nn.Linear(768*2,1)
 
-        self.alpha_linear1=nn.Linear(768,768)
-        self.alpha_linear2=nn.Linear(768,768)
+        # self.alpha_linear1=nn.Linear(768,768)
+        # self.alpha_linear2=nn.Linear(768,768)
 
         # self.senti_linear = nn.Linear(768, 768)
         # self.context_linear = nn.Linear(768, 768)
         # self.mix_linear = nn.Linear(768*2, 768)
         # self.senti_gcn=GCN(768,768,768,dropout=self.gcn_dropout)
         # self.context_gcn=GCN(768,768,768,dropout=self.gcn_dropout)
-        self.gcn = GCN(args, 768, 768)
+        self.dense = nn.Linear(768, args.hidden_dim)
+        self.gcn = GCN(args, args.hidden_dim, args.hidden_dim)
 
         if self.args.aesc_enabled == False:
-            self.classifier = nn.Linear(768, 3)
+            self.classifier = nn.Linear(args.hidden_dim, 3)
         # add
         # self.gat = GAT(768, 768, 0.2, 0.2, n_heads=1)
         # self.gat_linear = nn.Linear(768, 768)
@@ -192,7 +193,7 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         #     # 获取名词的embedding
         #     noun_embed=self.get_noun_embed(encoder_outputs,noun_mask)
         #     encoder_outputs=self.noun_attention(encoder_outputs,noun_embed,mode=self.nn_attention_mode)
-        encoder_outputs = embedding
+        encoder_outputs = self.dense(embedding)
         # gcn
         senti_feature, context_feature,mix_feature=None,None,None
         if self.sentinet_on and self.gcn_on:
