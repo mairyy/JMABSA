@@ -40,7 +40,7 @@ def fine_tune(epochs,
     best_test_res = None
     eval_step=100
 
-    embs = []
+    embs = {}
     for i, batch in enumerate(train_loader):
         model.train()
         img_encoder.train()
@@ -63,8 +63,11 @@ def fine_tune(epochs,
                 aspect_mask=batch['aspect_mask'].to(device),
                 short_mask=batch['short_mask'].to(device),
                 image_id=batch['image_id'])
-            embs.extend(outputs)
-    
+            embs.update(outputs)
+    with open('train_embs.pkl', 'wb') as f:
+        pickle.dump(embs, f)
+
+    embs = {}
     for i, batch in enumerate(test_loader):
         model.train()
         img_encoder.train()
@@ -87,8 +90,11 @@ def fine_tune(epochs,
                 aspect_mask=batch['aspect_mask'].to(device),
                 short_mask=batch['short_mask'].to(device),
                 image_id=batch['image_id'])
-            embs.extend(outputs)
-
+            embs.update(outputs)
+    with open('test_embs.pkl', 'wb') as f:
+        pickle.dump(embs, f)
+        
+    embs = {}
     for i, batch in enumerate(dev_loader):
         model.train()
         img_encoder.train()
@@ -111,10 +117,10 @@ def fine_tune(epochs,
                 aspect_mask=batch['aspect_mask'].to(device),
                 short_mask=batch['short_mask'].to(device),
                 image_id=batch['image_id'])
-            embs.extend(outputs)
-    
-    with open('embeddings.pkl', 'wb') as f:
+            embs.update(outputs)
+    with open('dev_embs.pkl', 'wb') as f:
         pickle.dump(embs, f)
+    
     # while epoch < epochs:
     #     logger.info('Epoch {}'.format(epoch + 1), pad=True)
     #     for i, batch in enumerate(train_loader):

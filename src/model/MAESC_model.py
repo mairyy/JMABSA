@@ -194,9 +194,9 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             noun_embed=self.get_noun_embed(encoder_outputs,noun_mask)
             encoder_outputs=self.noun_attention(encoder_outputs,noun_embed,mode=self.nn_attention_mode)
 
-        embs = []
+        embs = {}
         for i, id in enumerate(image_id):
-            embs.append({id: encoder_outputs[i]})
+            embs[id] = encoder_outputs[i]
         return embs
     
         # gcn
