@@ -429,6 +429,10 @@ def parse_args():
                         type=int,
                         default=768,
                         )
+    parser.add_argument('--max_token_len',
+                        type=int,
+                        default=90,
+                        )
     args = parser.parse_args()
     if args.encoder=='trc':
         args.trc_on=True

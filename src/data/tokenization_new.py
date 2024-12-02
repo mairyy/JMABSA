@@ -176,13 +176,14 @@ class ConditionTokenizer:
             self.mapping2id[key] = key_id[0]
             self.mapping2targetid[key] = len(self.mapping2targetid) + 2
         print(self.mapping2id)
+        self.max_len = args.max_token_len
 
     def encode(self, *args, **kwargs):
         return self._base_tokenizer(*args, **kwargs)
 
     def pad_tokens(self, tokens, noun_masks=None, dependency_matrix=None, aspect_masks=None):
-        max_len = max([len(x) for x in tokens])
-
+        # max_len = max([len(x) for x in tokens])
+        max_len = self.max_len
         pad_result = torch.full((len(tokens), max_len), self.pad_token_id)
         mask = torch.zeros(pad_result.size(), dtype=torch.bool)
         for i, x in enumerate(tokens):
