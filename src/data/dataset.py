@@ -16,16 +16,17 @@ class Twitter_Dataset(data.Dataset):
         self.infos = json.load(open(infos, 'r'))
 
         if split == 'train':
-            self.data_set = json.load(
+            data_set = json.load(
                 open(self.infos['data_dir'] + '/train.json', 'r'))
         elif split == 'dev':
-            self.data_set = json.load(
+            data_set = json.load(
                 open(self.infos['data_dir'] + '/dev.json', 'r'))
         elif split == 'test':
-            self.data_set = json.load(
+            data_set = json.load(
                 open(self.infos['data_dir'] + '/test.json', 'r'))
         else:
             raise RuntimeError("split type is not exist!!!")
+        self.data_set = self.get_dataset(data_set)
 
         crop_size = 224
         self.transform = transforms.Compose([
@@ -46,6 +47,16 @@ class Twitter_Dataset(data.Dataset):
     def __len__(self):
         return len(self.data_set)
 
+    def get_dataset(self, data):
+        new_dataset = []
+        for d in data:
+            for aspect in d['aspects']:
+                words = d['words']
+                image_id = d['image_id']
+                noun = d['noun']
+                new_dataset.append({'words': words, 'image_id': image_id, 'aspects': aspect, 'noun': noun, 'head': d['head'], 'short': d['short']})
+        return new_dataset
+    
     def get_img_feature(self,id):
         image_path = os.path.join(self.path_img, id)
         if not os.path.exists(image_path):
@@ -74,6 +85,13 @@ class Twitter_Dataset(data.Dataset):
             gt.append((' '.join(x['term']), x['polarity']))
         return gt
 
+    def get_aspect(self, dic):
+        # aspect = []
+        # for x in dic:
+        #     aspect.extend(x['term'])
+        # return aspect
+        return [dic['term']]
+    
     def __getitem__(self, index):
         output = {}
         data = self.data_set[index]
@@ -84,12 +102,16 @@ class Twitter_Dataset(data.Dataset):
         output['sentence'] = ' '.join(data['words'])
         # add
         output['noun']=data['noun']
-
-        aesc_spans = self.get_aesc_spans(data['aspects'])
-        output['aesc_spans'] = aesc_spans
+        
+        # aesc_spans = self.get_aesc_spans(data['aspects'])
+        # output['aesc_spans'] = aesc_spans
         output['image_id'] = img_id
-        gt = self.get_gt_aspect_senti(data['aspects'])
-        output['gt'] = gt
+        # gt = self.get_gt_aspect_senti(data['aspects'])
+        # output['gt'] = gt
+        output['aspects'] = self.get_aspect(data['aspects'])
+        output['head'] = data['head']
+        output['short'] = data['short']
+        output['polarity'] = data['aspects']['polarity']
         return output
 
 

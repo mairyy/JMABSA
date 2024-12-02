@@ -61,8 +61,11 @@ class Collator:
         target = [x['sentence'] for x in batch]
         sentence = list(target)
 
+        aspects = [x['aspects'] for x in batch]
+        short = [x['short'] for x in batch]
+
         encoded_conditions = self._tokenizer.encode_condition(
-            img_num=img_num, sentence=sentence, text_only=self.text_only)
+            img_num=img_num, sentence=sentence, text_only=self.text_only, aspects=aspects, short=short)
 
         input_ids = encoded_conditions['input_ids']
         output = {}
@@ -77,6 +80,8 @@ class Collator:
         output['noun_mask']=encoded_conditions['noun_mask']
         output['dependency_matrix']=encoded_conditions['dependency_matrix']
 
+        output['aspect_mask'] = encoded_conditions['aspect_mask']
+        output['short_mask'] = encoded_conditions['short_mask']
 
 
         if self._has_label:
@@ -85,10 +90,14 @@ class Collator:
                     target, [x['aesc_spans'] for x in batch],  # target = [x['sentence'] for x in batch]
                     self._max_span_len)
                 output['task'] = 'AESC'
+            else:
+                label_dict = {'POS': 0, 'NEU': 1, 'NEG': 2}
+                output['task'] = 'SC'
+                output['SC'] = torch.tensor([label_dict[x['polarity']] for x in batch])
             if self._trc_enabled:
                 output['ifpairs']=[x['ifpairs'] for x in batch]
 
         output['image_id'] = [x['image_id'] for x in batch]
-        if self._trc_enabled==False:
-            output['gt'] = [x['gt'] for x in batch]
+        # if self._trc_enabled==False:
+        #     output['gt'] = [x['gt'] for x in batch]
         return output

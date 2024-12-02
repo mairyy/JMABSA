@@ -70,7 +70,9 @@ class SequenceGeneratorModel(nn.Module):
                 attention_mask=None,
                 dependency_matrix=None,
                 aesc_infos=None,
-                first=None):
+                first=None,
+                aspect_mask=None,
+                short_mask=None):
         """
         透传调用seq2seq_model的forward
 
@@ -86,7 +88,9 @@ class SequenceGeneratorModel(nn.Module):
                                   noun_mask=noun_mask,
                                   attention_mask=attention_mask,
                                   dependency_matrix=dependency_matrix,
-                                  aesc_infos=aesc_infos)
+                                  aesc_infos=aesc_infos,
+                                  aspect_mask=aspect_mask,
+                                  short_mask=short_mask)
 
     def predict(self,
                 input_ids,
@@ -95,7 +99,9 @@ class SequenceGeneratorModel(nn.Module):
                 noun_mask,
                 attention_mask=None,
                 dependency_matrix=None,
-                aesc_infos=None):
+                aesc_infos=None,
+                aspect_mask=None,
+                short_mask=None):
         """
         给定source的内容，输出generate的内容
 
@@ -103,8 +109,8 @@ class SequenceGeneratorModel(nn.Module):
         :param torch.LongTensor src_seq_len: bsz
         :return:
         """
-        state = self.seq2seq_model.prepare_state(input_ids, image_features,noun_mask,
-                                                 attention_mask,dependency_matrix,sentiment_value)
+        state = self.seq2seq_model.prepare_state(input_ids, image_features, noun_mask, attention_mask, dependency_matrix, \
+                                                 sentiment_value, aspect_mask=aspect_mask, short_mask=short_mask)
         # state.encoder_output=att_features
         # state.encoder_mask=noun_mask
         tgt_tokens = aesc_infos['labels'].to(input_ids.device)

@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 from torch import optim
 import torch
+import torch.nn as nn
 import torch.multiprocessing as mp
 from torch.cuda.amp import GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -97,17 +98,17 @@ def main(rank, args):
 
     if args.checkpoint and args.no_train==False:
         seq2seq_model = MultiModalBartModel_AESC(bart_config, args,args.bart_model, tokenizer,label_ids)
-        model = SequenceGeneratorModel(seq2seq_model,
-                                       bos_token_id=bos_token_id,
-                                       eos_token_id=eos_token_id,
-                                       max_length=args.max_len,
-                                       max_len_a=args.max_len_a,
-                                       num_beams=args.num_beams,
-                                       do_sample=False,
-                                       repetition_penalty=1,
-                                       length_penalty=1.0,
-                                       pad_token_id=eos_token_id,
-                                       restricter=None)
+        # model = SequenceGeneratorModel(seq2seq_model,
+        #                                bos_token_id=bos_token_id,
+        #                                eos_token_id=eos_token_id,
+        #                                max_length=args.max_len,
+        #                                max_len_a=args.max_len_a,
+        #                                num_beams=args.num_beams,
+        #                                do_sample=False,
+        #                                repetition_penalty=1,
+        #                                length_penalty=1.0,
+        #                                pad_token_id=eos_token_id,
+        #                                restricter=None)
         if args.trc_on:
             trc_pretrain_model=TRCPretrain.from_pretrained(
                 args.trc_pretrain_file,
@@ -119,14 +120,22 @@ def main(rank, args):
                 args=args,
                 error_on_mismatch=False)
             if args.encoder=='trc':
-                model.seq2seq_model.encoder.load_state_dict(trc_pretrain_model.encoder.state_dict())
-            model.seq2seq_model.noun_linear.load_state_dict(trc_pretrain_model.noun_linear.state_dict())
-            model.seq2seq_model.multi_linear.load_state_dict(trc_pretrain_model.multi_linear.state_dict())
-            model.seq2seq_model.att_linear.load_state_dict(trc_pretrain_model.att_linear.state_dict())
-            model.seq2seq_model.linear.load_state_dict(trc_pretrain_model.linear.state_dict())
-            model.seq2seq_model.alpha_linear1.load_state_dict(trc_pretrain_model.alpha_linear1.state_dict())
-            model.seq2seq_model.alpha_linear2.load_state_dict(trc_pretrain_model.alpha_linear2.state_dict())
+                seq2seq_model.encoder.load_state_dict(trc_pretrain_model.encoder.state_dict())
+                for param in model.seq2seq_model.encoder.parmeters():
+                    param.requires_grad = False
+            seq2seq_model.noun_linear.load_state_dict(trc_pretrain_model.noun_linear.state_dict())
+            seq2seq_model.multi_linear.load_state_dict(trc_pretrain_model.multi_linear.state_dict())
+            seq2seq_model.att_linear.load_state_dict(trc_pretrain_model.att_linear.state_dict())
+            seq2seq_model.linear.load_state_dict(trc_pretrain_model.linear.state_dict())
+            seq2seq_model.alpha_linear1.load_state_dict(trc_pretrain_model.alpha_linear1.state_dict())
+            seq2seq_model.alpha_linear2.load_state_dict(trc_pretrain_model.alpha_linear2.state_dict())
+            freezes = ['noun_linear', 'multi_linear', 'att_linear', 'linear', 'alpha_linear1', 'alpha_linear2']
+            for name in freezes:
+                component = getattr(seq2seq_model, name)
+                for param in component.parameters():
+                    param.requires_grad = False
             logger.info('trc model loaded.')
+        model = seq2seq_model
     else:
         seq2seq_model = MultiModalBartModel_AESC(bart_config, args,
                                                  args.bart_model, tokenizer,
@@ -150,7 +159,7 @@ def main(rank, args):
 
     logger.info('Loading data...')
     collate_aesc = Collator(tokenizer,
-                            aesc_enabled=True,
+                            aesc_enabled=args.aesc_enabled,
                             text_only=args.text_only)
 
     train_dataset = Twitter_Dataset(args.img_path,args.dataset[0][1], split='train')
@@ -178,13 +187,14 @@ def main(rank, args):
                              collate_fn=collate_aesc)
 
     callback = None
+    criterion = nn.CrossEntropyLoss()
     metric = AESCSpanMetric(eos_token_id,
                             num_labels=len(label_ids),
                             conflict_id=-1,
                             dataset=args.dataset[0][0])
 
 
-    if args.no_train:
+    if args.no_train == True:
         if args.dataset[0][0] == 'twitter15':
             model=torch.load('AoM-ckpt/Twitter2015/AoM.pt', map_location=map_location)
         else:
@@ -212,7 +222,8 @@ def main(rank, args):
                   log_interval=1,
                   tb_writer=tb_writer,
                   tb_interval=1,
-                  scaler=scaler)
+                  scaler=scaler,
+                  criterion=criterion)
 
 
 def parse_args():
@@ -353,6 +364,7 @@ def parse_args():
                         default=1,
                         help='save the model or not')
     parser.add_argument('--task', type=str, default='', help='task type')
+    parser.add_argument('--aesc_enabled', type=bool, default=False, help='aesc or sc')
     parser.add_argument('--rank',
                         default=0,
                         type=int,
@@ -404,6 +416,18 @@ def parse_args():
     parser.add_argument('--dep_mode',
                         type=int,
                         default=0,
+                        )
+    parser.add_argument('--attention_heads',
+                        type=int,
+                        default=4,
+                        )
+    parser.add_argument('--gcn_layers',
+                        type=int,
+                        default=1,
+                        )
+    parser.add_argument('--hidden_dim',
+                        type=int,
+                        default=768,
                         )
     args = parser.parse_args()
     if args.encoder=='trc':

@@ -239,7 +239,7 @@ class MultiModalBartDecoder_span(nn.Module
         self.tokenizer = tokenizer
         self.causal_mask = causal_mask
         self.gcn_on=gcn_on
-
+        # print("label", label_ids) [50276, 50277, 50278, 50281]
         self.register_buffer('causal_masks', causal_mask.float())
         self.pad_token_id = pad_token_id
         # label_ids = sorted(label_ids, reverse=False)
@@ -263,7 +263,7 @@ class MultiModalBartDecoder_span(nn.Module
         self.senti_value_linear=nn.Linear(1,768)
 
 
-    def forward(self, tokens, state,sentiment_value,only_sc=False):
+    def forward(self, tokens, state, sentiment_value, only_sc=False):
         if self.gcn_on:
             encoder_pad_mask = state.encoder_mask
             mix_feature=state.mix_feature
@@ -310,11 +310,15 @@ class MultiModalBartDecoder_span(nn.Module
             hidden_state = self.dropout_layer(hidden_state)
             if not self.training:
                 state.past_key_values = dict.past_key_values
-
+            # print(hidden_state, hidden_state.shape)
             logits = hidden_state.new_full(
                 (hidden_state.size(0), hidden_state.size(1),
                  self.src_start_index + src_tokens.size(-1)),
                 fill_value=-1e24)
+            # print(logits, logits.shape)
+            # print(self.label_start_id, self.decoder.embed_tokens.
+            #             weight[self.label_start_id:self.label_start_id +
+            #                                        3])
             # 首先计算的是
 
             if self.need_tag:   #if predict the sentiment or not
@@ -370,6 +374,7 @@ class MultiModalBartDecoder_span(nn.Module
                 word_scores = word_scores.masked_fill(mask, -1e32)
                 logits[:, :, self.src_start_index:] = word_scores
                 logits[:, :, 1:2] = eos_scores
+            # print(logits, logits.shape)
             return logits
         else:
             bsz, max_len = tokens.size()
@@ -470,7 +475,6 @@ class MultiModalBartDecoder_span(nn.Module
                 word_scores = word_scores.masked_fill(mask, -1e32)
                 logits[:, :, self.src_start_index:] = word_scores
                 logits[:, :, 1:2] = eos_scores
-
             return logits
 
     def decode(self, tokens, state,sentiment_value, only_sc=False):

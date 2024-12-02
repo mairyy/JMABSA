@@ -180,7 +180,7 @@ class ConditionTokenizer:
     def encode(self, *args, **kwargs):
         return self._base_tokenizer(*args, **kwargs)
 
-    def pad_tokens(self, tokens, noun_masks=None, dependency_matrix=None):
+    def pad_tokens(self, tokens, noun_masks=None, dependency_matrix=None, aspect_masks=None):
         max_len = max([len(x) for x in tokens])
 
         pad_result = torch.full((len(tokens), max_len), self.pad_token_id)
@@ -194,6 +194,11 @@ class ConditionTokenizer:
             for i, x in enumerate(tokens):
                 noun_mask[i, :len(x)] = torch.tensor(noun_masks[i], dtype=torch.bool)
 
+        if aspect_masks is not None:
+            aspect_mask = torch.zeros((len(tokens), max_len), dtype=torch.long)
+            for i, x in enumerate(tokens):
+                aspect_mask[i, :len(x)] = torch.tensor(aspect_masks[i], dtype=torch.long)
+
         if dependency_matrix is not None:
             ret_dependency_matrix = torch.zeros([len(tokens), max_len, max_len], dtype=torch.float)
             for i in range(len(tokens)):
@@ -202,12 +207,14 @@ class ConditionTokenizer:
 
         if noun_masks is None:
             noun_mask = None
+        if aspect_masks is None:
+            aspect_mask = None
         if dependency_matrix is None:
             ret_dependency_matrix = None
 
-        return pad_result, mask, noun_mask, ret_dependency_matrix
+        return pad_result, mask, noun_mask, ret_dependency_matrix, aspect_mask
 
-    def encode_condition(self, img_num=None, sentence=None, text_only=False):
+    def encode_condition(self, img_num=None, sentence=None, text_only=False, aspects=None, short=None):
         """
         tokenize text, image features and event
         the output format (after decoded back):
@@ -223,6 +230,9 @@ class ConditionTokenizer:
                 "event_mask": ...,          only exist if event is given. 1 for the position with event tokens
                 "mlm_mask": ...,            only exist if mlm is given. 1 for the position with mlm tokens
                 "img_mask":...,             only exist if img_num is given. 1 for the position with img tokens
+                "aspect_mask":...,          1 for the position with aspect term
+                "short_mask":...,
+
             }
         """
 
@@ -284,7 +294,10 @@ class ConditionTokenizer:
 
             token_index = [np.arange(0, len(x)) for x in sentence_split]
             sentiments = []
+            aspect_masks = []
             for i, split in enumerate(sentence_split):
+                aspect = aspects[i]
+                aspect_mask = [0]
                 noun_mask = [0]
                 word_bpes = [self.bos_token_id]
                 if self.gcn_on:
@@ -332,6 +345,11 @@ class ConditionTokenizer:
                             for d_j in range(j + 1, len(split)):
                                 token_index[i][d_j] += len(bpes)
                                 token_index[i][d_j] -= 1
+                    if word in aspect:
+                        aspect_mask += [1] * len(bpes)
+                    else:
+                        aspect_mask += [0] * len(bpes)
+
                     word_bpes.extend(bpes)
                 word_bpes.append(self.eos_token_id)
                 if self.sentinet_on:
@@ -345,13 +363,25 @@ class ConditionTokenizer:
                     dependency_matrix[i][-1][-1] = 1
                 # assert len(word_bpes)==dependency_matrix[i].shape[0]
                 noun_mask += [0]
+                aspect_mask += [0]
                 # _word_bpes = list(chain(*word_bpes))
                 # input_sentence_tokens.append(_word_bpes.copy())
                 input_sentence_tokens.append(word_bpes)
                 # assert len(word_bpes)==len(noun_mask)
                 noun_masks.append(noun_mask)
+                aspect_masks.append(aspect_mask)
             # assert len(input_sentence_tokens)==len(noun_masks)
 
+        # aspect_ids = []
+        # if aspects is not None:
+        #     for aspect in aspects:
+        #         a_ids = []
+        #         for a in aspect:
+        #             a_id = self._base_tokenizer.tokenize(a)
+        #             a_id = self._base_tokenizer.convert_tokens_to_ids(a_id)
+        #             a_ids.extend(a_id)
+        #         aspect_ids.append(a_ids)
+        
         encoded = {}
         if image_text is not None:
             image_sentence = self.encode(image_text,
@@ -363,8 +393,8 @@ class ConditionTokenizer:
             # input_sentence_tokens, input_sentence_mask, noun_mask= self.pad_tokens(
             #     input_sentence_tokens, noun_masks)
 
-            input_sentence_tokens, input_sentence_mask, noun_mask, dependency_matrix = self.pad_tokens(
-                input_sentence_tokens, noun_masks, dependency_matrix)
+            input_sentence_tokens, input_sentence_mask, noun_mask, dependency_matrix, aspect_mask = self.pad_tokens(
+                input_sentence_tokens, noun_masks, dependency_matrix, aspect_masks)
 
             # 填充情感值
             if self.sentinet_on:
@@ -376,18 +406,74 @@ class ConditionTokenizer:
             if text_only:
                 image_attention_mask = torch.zeros(image_ids.size())
             input_ids = torch.cat((image_ids, input_sentence_tokens), 1)
-            attention_mask = torch.cat(
-                (image_attention_mask, input_sentence_mask), 1)
+            attention_mask = torch.cat((image_attention_mask, input_sentence_mask), 1)
             noun_mask = torch.cat((torch.zeros(image_ids.size(), dtype=torch.bool), noun_mask), 1)
+            aspect_mask = torch.cat((torch.zeros(image_ids.size(), dtype=torch.bool), aspect_mask), 1)
             # assert attention_mask.shape==noun_mask.shape
         else:
-            input_sentence_tokens, input_sentence_mask, noun_mask, dependency_matrix, _ = self.pad_tokens(
-                input_sentence_tokens, noun_masks, dependency_matrix)
+            input_sentence_tokens, input_sentence_mask, noun_mask, dependency_matrix, aspect_mask = self.pad_tokens(
+                input_sentence_tokens, noun_masks, dependency_matrix, aspect_masks)
             input_ids = input_sentence_tokens
             attention_mask = input_sentence_mask
 
-        encoded['input_ids'] = input_ids
+        max_len = input_ids.shape[1]
+        short_mask = []
 
+        for s in short:
+            mask_0 = [[-99999] * max_len for _ in range(max_len)]
+            mask_1 = [[-99999] * max_len for _ in range(max_len)]
+            mask_2 = [[-99999] * max_len for _ in range(max_len)]
+            mask_3 = [[-99999] * max_len for _ in range(max_len)]
+            mask_4 = [[-99999] * max_len for _ in range(max_len)]
+            mask_5 = [[-99999] * max_len for _ in range(max_len)]
+            short_length = len(s)
+            assert len(s) == len(s[0])
+            for i in range(short_length):
+                for j in range(short_length):
+                    mask_0[i][j] = 0
+                    if s[i][j] == 1:
+                        mask_1[i][j] = 0 
+                        mask_2[i][j] = 0
+                        mask_3[i][j] = 0
+                        mask_4[i][j] = 0
+                        mask_5[i][j] = 0
+                    elif s[i][j] == 2:
+                        mask_2[i][j] = 0
+                        mask_3[i][j] = 0
+                        mask_4[i][j] = 0
+                        mask_5[i][j] = 0
+                    elif s[i][j] == 3:
+                        mask_3[i][j] = 0
+                        mask_4[i][j] = 0
+                        mask_5[i][j] = 0
+                    elif s[i][j] == 4:
+                        mask_4[i][j] = 0
+                        mask_5[i][j] = 0
+                    elif s[i][j] == 5:
+                        mask_5[i][j] = 0    
+
+            for i in range(short_length):
+                mask_1[i][i] = 0 
+                mask_2[i][i] = 0
+                mask_3[i][i] = 0
+                mask_4[i][i] = 0
+                mask_5[i][i] = 0
+            
+
+            short_mask.append(np.asarray([mask_0, mask_1, mask_2, mask_3], dtype='float32'))
+
+        # aspect_ids_ = torch.zeros_like(input_ids)
+        # for i, aspect in enumerate(aspect_ids):
+        #     aspect_ids_[i, :len(aspect)] = torch.tensor(aspect)
+
+        # print(input_ids, aspect_ids)
+        # matches = (input_ids.unsqueeze(-1) == aspect_ids_.unsqueeze(1))
+        # aspect_mask = matches.any(dim=-1).long()
+        # print(aspect_mask, aspect_mask.shape)
+        
+        encoded['short_mask'] = torch.tensor(short_mask)
+        encoded['aspect_mask'] = aspect_mask
+        encoded['input_ids'] = input_ids
         encoded['attention_mask'] = attention_mask
         encoded['noun_mask'] = noun_mask
         encoded['dependency_matrix'] = dependency_matrix
