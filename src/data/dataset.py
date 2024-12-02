@@ -15,18 +15,23 @@ class Twitter_Dataset(data.Dataset):
     def __init__(self,img_path,infos, split):
         self.path_img = img_path
         self.infos = json.load(open(infos, 'r'))
-        with open('embeddings.pkl', 'rb') as f:
-            self.embeddings = pickle.load(f)
+        
 
         if split == 'train':
             data_set = json.load(
                 open(self.infos['data_dir'] + '/train.json', 'r'))
+            with open(self.infos['data_dir'] + '/train_embs.pkl', 'rb') as f:
+                self.embeddings = pickle.load(f)    
         elif split == 'dev':
             data_set = json.load(
                 open(self.infos['data_dir'] + '/dev.json', 'r'))
+            with open(self.infos['data_dir'] + '/dev_embs.pkl', 'rb') as f:
+                self.embeddings = pickle.load(f)    
         elif split == 'test':
             data_set = json.load(
                 open(self.infos['data_dir'] + '/test.json', 'r'))
+            with open(self.infos['data_dir'] + '/test_embs.pkl', 'rb') as f:
+                self.embeddings = pickle.load(f)    
         else:
             raise RuntimeError("split type is not exist!!!")
         self.data_set = self.get_dataset(data_set)

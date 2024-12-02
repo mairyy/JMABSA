@@ -98,7 +98,8 @@ class Collator:
                 output['ifpairs']=[x['ifpairs'] for x in batch]
 
         output['image_id'] = [x['image_id'] for x in batch]
-        output['embedding'] = torch.tensor([x['embedding'] for x in batch])
+        output['embedding'] = torch.stack([x['embedding'] for x in batch])
+        print(output['embedding'].shape)
         # if self._trc_enabled==False:
         #     output['gt'] = [x['gt'] for x in batch]
         return output
