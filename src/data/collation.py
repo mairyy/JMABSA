@@ -83,7 +83,6 @@ class Collator:
         output['aspect_mask'] = encoded_conditions['aspect_mask']
         output['short_mask'] = encoded_conditions['short_mask']
 
-
         if self._has_label:
             if self._aesc_enabled:
                 output['AESC'] = self._tokenizer.encode_aesc(

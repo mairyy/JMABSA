@@ -12,3 +12,4 @@ TRC_ckpt
 **/__pycache__/
 **/.DS_Store
 **/checkpoint
+embeddings.pkl

@@ -23,6 +23,7 @@ import copy
 from src.model.GAT import GAT
 import numpy as np
 import os
+import pickle
 
 class MultiModalBartModel_AESC(PretrainedBartModel):
     def build_model(self,
@@ -176,7 +177,8 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
                       raw_token_ids=None,
                       first=None,
                       aspect_mask=None,
-                      short_mask=None):
+                      short_mask=None,
+                      image_id=None):
         dict = self.encoder(input_ids=input_ids,
                             image_features=image_features,
                             attention_mask=attention_mask,
@@ -191,34 +193,39 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             # 获取名词的embedding
             noun_embed=self.get_noun_embed(encoder_outputs,noun_mask)
             encoder_outputs=self.noun_attention(encoder_outputs,noun_embed,mode=self.nn_attention_mode)
-        
-        # gcn
-        senti_feature, context_feature,mix_feature=None,None,None
-        if self.sentinet_on and self.gcn_on:
-            # mix_feature = self.multimodal_GCN(encoder_outputs, dependency_matrix, attention_mask,noun_mask,sentiment_value)
-            mix_feature = self.gcn(encoder_outputs, attention_mask, aspect_mask, short_mask)
-        elif self.gcn_on:
-            # mix_feature = self.multimodal_GCN(encoder_outputs, dependency_matrix, attention_mask,noun_mask)
-            mix_feature = self.gcn(encoder_outputs, attention_mask, aspect_mask, short_mask)
 
-        if self.args.aesc_enabled == False:
-            asp_wn = aspect_mask.sum(dim=1).unsqueeze(-1)                        
-            p = len(aspect_mask)
-            b = len(aspect_mask[0])
-            mask = aspect_mask.unsqueeze(-1).repeat(1,1,self.args.hidden_dim)    
-            outputs = (mix_feature*mask).sum(dim=1) / asp_wn 
-            return outputs
+        embs = []
+        for i, id in enumerate(image_id):
+            embs.append({id: encoder_outputs[i]})
+        return embs
+    
+        # gcn
+        # senti_feature, context_feature,mix_feature=None,None,None
+        # if self.sentinet_on and self.gcn_on:
+        #     # mix_feature = self.multimodal_GCN(encoder_outputs, dependency_matrix, attention_mask,noun_mask,sentiment_value)
+        #     mix_feature = self.gcn(encoder_outputs, attention_mask, aspect_mask, short_mask)
+        # elif self.gcn_on:
+        #     # mix_feature = self.multimodal_GCN(encoder_outputs, dependency_matrix, attention_mask,noun_mask)
+        #     mix_feature = self.gcn(encoder_outputs, attention_mask, aspect_mask, short_mask)
+
+        # if self.args.aesc_enabled == False:
+        #     asp_wn = aspect_mask.sum(dim=1).unsqueeze(-1)                        
+        #     p = len(aspect_mask)
+        #     b = len(aspect_mask[0])
+        #     mask = aspect_mask.unsqueeze(-1).repeat(1,1,self.args.hidden_dim)    
+        #     outputs = (mix_feature*mask).sum(dim=1) / asp_wn 
+        #     return outputs
         
-        state = BartState(
-            encoder_outputs,
-            encoder_mask,
-            input_ids[:,51:],  #the text features start from index 38, the front are image features.
-            first,
-            src_embed_outputs,
-            mix_feature
-        )
-        # setattr(state, 'tgt_seq_len', tgt_seq_len)
-        return state
+        # state = BartState(
+        #     encoder_outputs,
+        #     encoder_mask,
+        #     input_ids[:,51:],  #the text features start from index 38, the front are image features.
+        #     first,
+        #     src_embed_outputs,
+        #     mix_feature
+        # )
+        # # setattr(state, 'tgt_seq_len', tgt_seq_len)
+        # return state
 
 
     def noun_attention(self,encoder_outputs,noun_embed,mode='multi-head'):
@@ -335,23 +342,24 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             output_attentions=None,
             output_hidden_states=None,
             aspect_mask=None,
-            short_mask=None
+            short_mask=None,
+            image_id=None
     ):
         state = self.prepare_state(input_ids, image_features, noun_mask, attention_mask, dependency_matrix, sentiment_value,\
-                                    aspect_mask=aspect_mask, short_mask=short_mask)
-        
-        if self.args.aesc_enabled:
-            spans, span_mask = [
-                aesc_infos['labels'].to(input_ids.device),
-                aesc_infos['masks'].to(input_ids.device)
-            ]
-            logits = self.decoder(spans, state,sentiment_value)
-            # logits = self.decoder(spans, state)
+                                    aspect_mask=aspect_mask, short_mask=short_mask, image_id=image_id)
+        return state
+        # if self.args.aesc_enabled:
+        #     spans, span_mask = [
+        #         aesc_infos['labels'].to(input_ids.device),
+        #         aesc_infos['masks'].to(input_ids.device)
+        #     ]
+        #     logits = self.decoder(spans, state,sentiment_value)
+        #     # logits = self.decoder(spans, state)
 
-            loss = self.span_loss_fct(spans[:, 1:], logits, span_mask[:, 1:])
-            return loss
-        else:
-            return self.classifier(state)
+        #     loss = self.span_loss_fct(spans[:, 1:], logits, span_mask[:, 1:])
+        #     return loss
+        # else:
+        #     return self.classifier(state)
 
 
 class BartState(State):
