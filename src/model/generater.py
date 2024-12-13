@@ -103,7 +103,7 @@ class SequenceGeneratorModel(nn.Module):
         :param torch.LongTensor src_seq_len: bsz
         :return:
         """
-        state = self.seq2seq_model.prepare_state(input_ids, image_features,noun_mask,
+        state, embedded_images, mix_feature = self.seq2seq_model.prepare_state(input_ids, image_features,noun_mask,
                                                  attention_mask,dependency_matrix,sentiment_value)
         # state.encoder_output=att_features
         # state.encoder_mask=noun_mask
@@ -485,7 +485,7 @@ def _beam_search_generate(decoder: Seq2SeqDecoder,
     state.reorder_state(indices)
     tokens = tokens.index_select(
         dim=0, index=indices)  # batch_size * num_beams x length
-    # print(tokens.shape)
+    #print(tokens.shape)
     # pdb.set_trace()
     if max_len_a != 0:
         # (bsz x num_beams, )
@@ -562,7 +562,7 @@ def _beam_search_generate(decoder: Seq2SeqDecoder,
     while cur_len < real_max_length:
         scores = decoder.decode(token_ids,
                                 state,sentiment_value)  # (bsz x num_beams, vocab_size)
-        # print(scores[0])
+        #print(scores[0].shape, vocab_size, len(scores))
         # pdb.set_trace()
         if repetition_penalty != 1.0:
             token_scores = scores.gather(dim=1, index=token_ids)
@@ -677,11 +677,13 @@ def _beam_search_generate(decoder: Seq2SeqDecoder,
             best_hyp = torch.cat(
                 [best_hyp, best_hyp.new_ones(1) * _eos_token_id])
         tgt_len[i] = len(best_hyp)
+        print(best_hyp, len(best_hyp))
         best.append(best_hyp)
-
+    print(len(best))
     # generate target batch
     decoded = token_ids.new_zeros(batch_size,
                                   tgt_len.max().item()).fill_(pad_token_id)
+    print(decoded.shape, tgt_len.shape)
     for i, hypo in enumerate(best):
         decoded[i, :tgt_len[i]] = hypo
 

@@ -381,7 +381,7 @@ class ConditionTokenizer:
             noun_mask = torch.cat((torch.zeros(image_ids.size(), dtype=torch.bool), noun_mask), 1)
             # assert attention_mask.shape==noun_mask.shape
         else:
-            input_sentence_tokens, input_sentence_mask, noun_mask, dependency_matrix, _ = self.pad_tokens(
+            input_sentence_tokens, input_sentence_mask, noun_mask, dependency_matrix = self.pad_tokens(
                 input_sentence_tokens, noun_masks, dependency_matrix)
             input_ids = input_sentence_tokens
             attention_mask = input_sentence_mask

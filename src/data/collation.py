@@ -56,7 +56,8 @@ class Collator:
         batch = [entry for entry in batch if entry is not None]
         image_features =[x['img_feat'] for x in batch]
 
-        img_num = [49]*len(image_features)
+        #img_num = [49]*len(image_features)
+        img_num = None 
 
         target = [x['sentence'] for x in batch]
         sentence = list(target)
@@ -66,7 +67,7 @@ class Collator:
 
         input_ids = encoded_conditions['input_ids']
         output = {}
-        condition_img_mask = encoded_conditions['img_mask']
+        # condition_img_mask = encoded_conditions['img_mask']
 
         output['input_ids'] = input_ids
         output['attention_mask'] = encoded_conditions['attention_mask']

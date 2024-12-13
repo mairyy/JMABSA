@@ -34,6 +34,7 @@ def eval(args, model, img_encoder,loader, metric, device):
             aesc_infos=aesc_infos)
         metric.evaluate(aesc_infos['spans'], predict,
                         aesc_infos['labels'].to(device))
+        print("Eval {}/{}".format(i, len(loader)))
         # break
 
     res = metric.get_metric()

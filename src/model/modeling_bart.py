@@ -24,7 +24,7 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 from torch.nn import CrossEntropyLoss
 from transformers.modeling_bart import *
-from .modules import BaseModelOutputWithPast
+from .modules import BaseModelOutputWithPast, BaseModelOutput
 # from transformer_my.modeling_bart import *
 
 # logger = logging.get_logger(__name__)

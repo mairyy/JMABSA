@@ -14,13 +14,8 @@ do
           --grad_clip 5 \
           --warmup 0.1 \
           --seed 57 \
-          --checkpoint ./checkpoint/pytorch_model.bin \
           --rank 2 \
           --trc_pretrain_file TRC_ckpt/pytorch_model.bin \
-          --nn_attention_on \
-          --nn_attention_mode 0\
-          --trc_on \
           --gcn_on \
-          --dep_mode 2 \
-          --sentinet
+          --dep_mode 0
 done

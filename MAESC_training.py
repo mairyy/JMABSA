@@ -95,8 +95,10 @@ def main(rank, args):
     img_encoder = myResnet(net, True, device)
     img_encoder.to(device)
 
-    if args.checkpoint and args.no_train==False:
-        seq2seq_model = MultiModalBartModel_AESC(bart_config, args,args.bart_model, tokenizer,label_ids)
+    if args.checkpoint:
+        seq2seq_model = MultiModalBartModel_AESC(bart_config, args,
+                                                 args.bart_model, tokenizer,
+                                                 label_ids)
         model = SequenceGeneratorModel(seq2seq_model,
                                        bos_token_id=bos_token_id,
                                        eos_token_id=eos_token_id,
@@ -108,25 +110,6 @@ def main(rank, args):
                                        length_penalty=1.0,
                                        pad_token_id=eos_token_id,
                                        restricter=None)
-        if args.trc_on:
-            trc_pretrain_model=TRCPretrain.from_pretrained(
-                args.trc_pretrain_file,
-                config=bart_config,
-                bart_model=args.bart_model,
-                tokenizer=tokenizer,
-                label_ids=label_ids,
-                senti_ids=senti_ids,
-                args=args,
-                error_on_mismatch=False)
-            if args.encoder=='trc':
-                model.seq2seq_model.encoder.load_state_dict(trc_pretrain_model.encoder.state_dict())
-            model.seq2seq_model.noun_linear.load_state_dict(trc_pretrain_model.noun_linear.state_dict())
-            model.seq2seq_model.multi_linear.load_state_dict(trc_pretrain_model.multi_linear.state_dict())
-            model.seq2seq_model.att_linear.load_state_dict(trc_pretrain_model.att_linear.state_dict())
-            model.seq2seq_model.linear.load_state_dict(trc_pretrain_model.linear.state_dict())
-            model.seq2seq_model.alpha_linear1.load_state_dict(trc_pretrain_model.alpha_linear1.state_dict())
-            model.seq2seq_model.alpha_linear2.load_state_dict(trc_pretrain_model.alpha_linear2.state_dict())
-            logger.info('trc model loaded.')
     else:
         seq2seq_model = MultiModalBartModel_AESC(bart_config, args,
                                                  args.bart_model, tokenizer,
@@ -142,6 +125,7 @@ def main(rank, args):
                                        length_penalty=1.0,
                                        pad_token_id=eos_token_id,
                                        restricter=None)
+        
     model.to(device)
 
     optimizer = AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.999))

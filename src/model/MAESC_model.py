@@ -12,7 +12,7 @@ from src.model.modeling_bart import (PretrainedBartModel, BartEncoder,
 from transformers import BartTokenizer
 
 from src.model.config import MultiModalBartConfig
-from src.model.modules import MultiModalBartEncoder, MultiModalBartDecoder_span, Span_loss
+from src.model.modules import MultiModalBartEncoder, MultiModalBartDecoder_span, Span_loss, SupConLoss
 import numpy as np
 import torch.nn as nn
 import math
@@ -23,6 +23,7 @@ import copy
 from src.model.GAT import GAT
 import numpy as np
 import os
+from src.model.modules import ImageEmbedding
 
 class MultiModalBartModel_AESC(PretrainedBartModel):
     def build_model(self,
@@ -76,7 +77,8 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         multimodal_encoder = MultiModalBartEncoder(config, encoder,
                                                    tokenizer.img_feat_id,
                                                    tokenizer.cls_token_id)
-        return (multimodal_encoder, decoder)
+        #return (multimodal_encoder, decoder)
+        return (encoder, decoder)
 
 
     def __init__(self, config: MultiModalBartConfig, args, bart_model,
@@ -85,11 +87,18 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         self.config = config
         self.mydevice=args.device
         label_ids = sorted(label_ids)
-        multimodal_encoder, share_decoder = self.build_model(
+        #multimodal_encoder, share_decoder = self.build_model(
+        #    args, bart_model, tokenizer, label_ids, config)
+        encoder, share_decoder = self.build_model(
             args, bart_model, tokenizer, label_ids, config)
         causal_mask = torch.zeros(512, 512).fill_(float('-inf'))
         self.causal_mask = causal_mask.triu(diagonal=1)
-        self.encoder = multimodal_encoder
+        #self.encoder = multimodal_encoder
+        self.encoder = encoder
+        embed_tokens = self.encoder.embed_tokens
+        embed_dim = embed_tokens.embedding_dim
+        self.embed_images = ImageEmbedding(2048, embed_dim)
+
         only_sc = False
         need_tag = True  #if predict the sentiment or not
         self.gcn_on=args.gcn_on
@@ -110,6 +119,7 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
                                                   need_tag=need_tag,
                                                   only_sc=False)
         self.span_loss_fct = Span_loss()
+        self.con_loss_fct = SupConLoss()
 
         # add
         self.noun_linear=nn.Linear(768,768)
@@ -170,11 +180,16 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
                       pos_ids=None,
                       raw_token_ids=None,
                       first=None):
+        #dict = self.encoder(input_ids=input_ids,
+        #                    image_features=image_features,
+        #                    attention_mask=attention_mask,
+        #                    output_hidden_states=True,
+        #                    return_dict=True)
         dict = self.encoder(input_ids=input_ids,
-                            image_features=image_features,
                             attention_mask=attention_mask,
                             output_hidden_states=True,
                             return_dict=True)
+        embedded_images = self.embed_images(image_features)
         encoder_outputs = dict.last_hidden_state
         hidden_states = dict.hidden_states
         encoder_mask = attention_mask
@@ -186,23 +201,32 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             encoder_outputs=self.noun_attention(encoder_outputs,noun_embed,mode=self.nn_attention_mode)
 
         # gcn
-        senti_feature, context_feature,mix_feature=None,None,None
+        senti_feature, context_feature, mix_feature = None, None, None
         if self.sentinet_on and self.gcn_on:
             mix_feature = self.multimodal_GCN(encoder_outputs, dependency_matrix, attention_mask,noun_mask,sentiment_value)
         elif self.gcn_on:
-            mix_feature = self.multimodal_GCN(encoder_outputs, dependency_matrix, attention_mask,noun_mask)
-
+            #mix_feature = self.multimodal_GCN(encoder_outputs, dependency_matrix, attention_mask,noun_mask)
+            mix_feature = self.syntatic_GCN(encoder_outputs, dependency_matrix, attention_mask) #syntatic representation [8,34,768]
+        
+        #print("mix", mix_feature)
+        embedded_images = torch.stack(embedded_images) #[8,49,768]
+        #print("img", embedded_images)
+        img_att = self.attention(mix_feature, embedded_images, embedded_images) #img feature relevant to text
+        #print("att", img_att)
+        alpha = 0.7 #fused_weight
+        fused_feature = alpha * mix_feature + (1-alpha) * img_att
+        #print("fuse", fused_feature)
 
         state = BartState(
             encoder_outputs,
             encoder_mask,
-            input_ids[:,51:],  #the text features start from index 38, the front are image features.
+            input_ids,  #the text features start from index 38, the front are image features
             first,
             src_embed_outputs,
-            mix_feature
+            fused_feature
         )
         # setattr(state, 'tgt_seq_len', tgt_seq_len)
-        return state
+        return state, embedded_images, mix_feature
 
 
     def noun_attention(self,encoder_outputs,noun_embed,mode='multi-head'):
@@ -304,7 +328,85 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
 
         return mix_feature
 
+    def syntatic_GCN(self, encoder_outputs, dependency_matrix, attention_mask, threshold=0.8, dropout=0.8):
+        # 多模态依赖矩阵
+        new_dependency_matrix=torch.zeros([encoder_outputs.shape[0],encoder_outputs.shape[1],encoder_outputs.shape[1]],dtype=torch.float).to(encoder_outputs.device)
+        text_feature = encoder_outputs
+        img_feature = None
 
+        # dep_list = ['text_cosine', 'text_cat_sim', 'text_cos_img_noun_sim']
+        if self.dep_mode=='text_cosine':
+            # 以token之间的相似度作为依赖值
+            text_feature_extend1 = text_feature.unsqueeze(1).repeat(1, text_feature.shape[1], 1, 1)
+            text_feature_extend2 = text_feature.unsqueeze(2).repeat(1, 1, text_feature.shape[1], 1)
+            text_sim = torch.cosine_similarity(text_feature_extend1, text_feature_extend2, dim=-1)
+            new_dependency_matrix = dependency_matrix * text_sim
+        elif self.dep_mode=='text_cat_sim':
+            text_feature_extend1 = text_feature.unsqueeze(1).repeat(1, text_feature.shape[1], 1, 1)
+            text_feature_extend2 = text_feature.unsqueeze(2).repeat(1, 1, text_feature.shape[1], 1)
+            text_feature_extend1=self.dep_linear1(text_feature_extend1)
+            text_feature_extend2=self.dep_linear2(text_feature_extend2)
+            att=torch.softmax(self.dep_att_linear(torch.tanh(torch.cat(
+                [text_feature_extend1,text_feature_extend2],dim=-1
+            ))).squeeze(-1),dim=-1)
+            new_dependency_matrix[:, 51:, 51:] = dependency_matrix * att
+        elif self.dep_mode=='text_cos_img_noun_sim':
+            # 计算图像patch和文本token的关联度作为依赖矩阵中图片的值
+            img_feature_extend=img_feature.unsqueeze(2).repeat(1,1,text_feature.shape[1],1)
+            text_feature_extend=text_feature.unsqueeze(1).repeat(1,img_feature.shape[1],1,1)
+            sim=torch.cosine_similarity(img_feature_extend,text_feature_extend,dim=-1)
+
+            # 图像只与名词挂钩
+            noun_mask=noun_mask[:,51:].unsqueeze(1).repeat(1,sim.shape[1],1)
+            sim=sim*noun_mask
+            new_dependency_matrix[:,:51,51:]=sim
+            new_dependency_matrix[:,51:,:51]=torch.transpose(sim,1,2)
+
+            # 以token之间的相似度作为依赖值
+            text_feature_extend1 = text_feature.unsqueeze(1).repeat(1, text_feature.shape[1], 1, 1)
+            text_feature_extend2 = text_feature.unsqueeze(2).repeat(1, 1, text_feature.shape[1], 1)
+            text_sim = torch.cosine_similarity(text_feature_extend1, text_feature_extend2, dim=-1)
+            new_dependency_matrix[:, 51:, 51:] = dependency_matrix * text_sim
+
+        # new_dependency_matrix[:,51:,51:]=dependency_matrix
+        for i in range(new_dependency_matrix.shape[1]):
+            new_dependency_matrix[:,i,i]=1
+
+        # GCN部分
+        context_dependency_matrix = new_dependency_matrix.clone().detach()
+
+        # 填充图像区域情感值
+        if self.sentinet_on:
+            sentiment_value=nn.ZeroPad2d(padding=(51,0,0,0))(sentiment_value)
+            sentiment_value =sentiment_value.unsqueeze(-1)
+            sentiment_feature=self.senti_value_linear(sentiment_value)
+            context_feature = self.context_linear(encoder_outputs+sentiment_feature)
+            context_feature = self.context_gcn(context_feature, context_dependency_matrix, attention_mask)
+        else:
+            context_feature=self.context_gcn(encoder_outputs,context_dependency_matrix,attention_mask)
+        mix_feature = self.gcn_proportion*context_feature + encoder_outputs
+
+        return mix_feature
+    
+    def contrastive_loss(self, feats_1, feats_2, temp=0.07):
+        # print(feats_1.mean(dim=1).shape, feats_2.mean(dim=1).shape)
+        feats_1 = feats_1.mean(dim=1)
+        feats_2 = feats_2.mean(dim=1 )
+        sim_matrix = torch.matmul(feats_1, feats_2.T)
+
+        i_logsoftmax = nn.functional.log_softmax(sim_matrix / temp, dim=1)
+        j_logsoftmax = nn.functional.log_softmax(sim_matrix.T / temp, dim=1)
+        # print(i_logsoftmax.shape, i_logsoftmax.reshape([16,-1]).shape, i_logsoftmax.unsqueeze(1).shape)
+        i_diag = torch.diag(i_logsoftmax)
+        loss_i = i_diag.mean()
+
+        j_diag = torch.diag(j_logsoftmax)
+        loss_j = j_diag.mean()
+
+        con_loss = - (loss_i + loss_j) / 2 #2024-07-18-11-04-57
+
+        return con_loss
+    
     def forward(
             self,
             input_ids,
@@ -319,15 +421,22 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             output_attentions=None,
             output_hidden_states=None,
     ):
-        state = self.prepare_state(input_ids, image_features,noun_mask, attention_mask,dependency_matrix,sentiment_value)
+        state, embedded_images, mix_feature = self.prepare_state(input_ids, image_features,noun_mask, attention_mask,dependency_matrix,sentiment_value)
         spans, span_mask = [
             aesc_infos['labels'].to(input_ids.device),
             aesc_infos['masks'].to(input_ids.device)
         ]
-        logits = self.decoder(spans, state,sentiment_value)
+        logits = self.decoder(spans, state, sentiment_value)
         # logits = self.decoder(spans, state)
+        #print("logit", logits)
+        span_loss = self.span_loss_fct(spans[:, 1:], logits, span_mask[:, 1:])
+        #print("span", span_loss)
+        #con_loss = self.con_loss_fct(torch.cat([mix_feature, embedded_images], dim=1), device=input_ids.device)
+        con_loss = self.contrastive_loss(mix_feature, embedded_images)
+        #print("con", con_loss)
 
-        loss = self.span_loss_fct(spans[:, 1:], logits, span_mask[:, 1:])
+        beta = 0.5 #loss belance param
+        loss = span_loss * beta + con_loss * (1 - beta)
         return loss
 
 
@@ -393,7 +502,7 @@ class Attention(nn.Module) :
         x = x.view(new_size)
         return x.permute(0, 2, 1, 3)
 
-    def forward(self, q,k,v):
+    def forward(self, q,k,v, return_score=False):
         key = self.key_layer(k)
         query = self.query_layer(q)
         value = self.value_layer(v)
@@ -407,6 +516,9 @@ class Attention(nn.Module) :
 
         attention_probs = F.softmax(attention_scores, dim = -1)
 
+        if return_score:
+            return attention_probs
+        
         context = torch.matmul(attention_probs, value_heads)
         context = context.permute(0, 2, 1, 3).contiguous()
         new_size = context.size()[ : -2] + (self.all_head_size , )
