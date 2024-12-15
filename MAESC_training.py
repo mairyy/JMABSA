@@ -96,20 +96,20 @@ def main(rank, args):
     img_encoder.to(device)
 
     if args.checkpoint:
-        seq2seq_model = MultiModalBartModel_AESC(bart_config, args,
-                                                 args.bart_model, tokenizer,
-                                                 label_ids)
-        model = SequenceGeneratorModel(seq2seq_model,
-                                       bos_token_id=bos_token_id,
-                                       eos_token_id=eos_token_id,
-                                       max_length=args.max_len,
-                                       max_len_a=args.max_len_a,
-                                       num_beams=args.num_beams,
-                                       do_sample=False,
-                                       repetition_penalty=1,
-                                       length_penalty=1.0,
-                                       pad_token_id=eos_token_id,
-                                       restricter=None)
+        #seq2seq_model = MultiModalBartModel_AESC.from_pretrained(os.path.join(args.checkpoint, 'pytorch_model.bin'), bart_config)
+        #seq2seq_model.from_pretrained()
+        #model = SequenceGeneratorModel(seq2seq_model,
+        #                               bos_token_id=bos_token_id,
+        #                               eos_token_id=eos_token_id,
+        #                               max_length=args.max_len,
+        #                               max_len_a=args.max_len_a,
+        #                               num_beams=args.num_beams,
+        #                               do_sample=False,
+        #                               repetition_penalty=1,
+        #                               length_penalty=1.0,
+        #                               pad_token_id=eos_token_id,
+        #                               restricter=None)
+        model = torch.load(os.path.join(args.checkpoint, 'AoM.pt'))
     else:
         seq2seq_model = MultiModalBartModel_AESC(bart_config, args,
                                                  args.bart_model, tokenizer,
