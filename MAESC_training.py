@@ -170,7 +170,7 @@ def main(rank, args):
 
     if args.no_train:
         if args.dataset[0][0] == 'twitter15':
-            model=torch.load('AoM-ckpt/Twitter2015/AoM.pt', map_location=map_location)
+            model=torch.load(os.path.join(args.checkpoint, 'AoM.pt'), map_location=map_location)
         else:
             model=torch.load('AoM-ckpt/Twitter2017/AoM.pt', map_location=map_location)
 
@@ -342,7 +342,7 @@ def parse_args():
                         type=int,
                         help=' ')
     parser.add_argument('--no_train',
-                        default=False,
+                        default=True,
                         type=bool,
                         help=' ')
     parser.add_argument('--trc_pretrain_file',

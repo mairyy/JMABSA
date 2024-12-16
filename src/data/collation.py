@@ -56,8 +56,8 @@ class Collator:
         batch = [entry for entry in batch if entry is not None]
         image_features =[x['img_feat'] for x in batch]
 
-        #img_num = [49]*len(image_features)
-        img_num = None 
+        img_num = [49]*len(image_features)
+        #img_num = None 
 
         target = [x['sentence'] for x in batch]
         sentence = list(target)

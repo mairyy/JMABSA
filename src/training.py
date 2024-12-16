@@ -104,6 +104,7 @@ def fine_tune(epochs,
         save_flag = False
         if best_dev_res is None:
             best_dev_res = res_dev
+            save_flag = True
             #best_dev_test_res = res_test
         else:
             if best_dev_res['aesc_f'] < res_dev['aesc_f']:

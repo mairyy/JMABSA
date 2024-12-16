@@ -220,7 +220,7 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         state = BartState(
             encoder_outputs,
             encoder_mask,
-            input_ids,  #the text features start from index 38, the front are image features
+            input_ids[:,51:],  #the text features start from index 38, the front are image features
             first,
             src_embed_outputs,
             fused_feature
@@ -331,8 +331,10 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
     def syntatic_GCN(self, encoder_outputs, dependency_matrix, attention_mask, threshold=0.8, dropout=0.8):
         # 多模态依赖矩阵
         new_dependency_matrix=torch.zeros([encoder_outputs.shape[0],encoder_outputs.shape[1],encoder_outputs.shape[1]],dtype=torch.float).to(encoder_outputs.device)
-        text_feature = encoder_outputs
-        img_feature = None
+        #text_feature = encoder_outputs
+        #img_feature = None
+        img_feature=encoder_outputs[:,:51,:]
+        text_feature=encoder_outputs[:,51:,:]
 
         # dep_list = ['text_cosine', 'text_cat_sim', 'text_cos_img_noun_sim']
         if self.dep_mode=='text_cosine':
@@ -340,7 +342,8 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             text_feature_extend1 = text_feature.unsqueeze(1).repeat(1, text_feature.shape[1], 1, 1)
             text_feature_extend2 = text_feature.unsqueeze(2).repeat(1, 1, text_feature.shape[1], 1)
             text_sim = torch.cosine_similarity(text_feature_extend1, text_feature_extend2, dim=-1)
-            new_dependency_matrix = dependency_matrix * text_sim
+            #new_dependency_matrix = dependency_matrix * text_sim
+            new_dependency_matrix[:, 51:, 51:] = dependency_matrix * text_sim
         elif self.dep_mode=='text_cat_sim':
             text_feature_extend1 = text_feature.unsqueeze(1).repeat(1, text_feature.shape[1], 1, 1)
             text_feature_extend2 = text_feature.unsqueeze(2).repeat(1, 1, text_feature.shape[1], 1)

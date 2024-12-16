@@ -350,16 +350,18 @@ class MultiModalBartDecoder_span(nn.Module
                                                         src_outputs.size(-1)),
                         dim=1)
                 else:
-                    mask = state.encoder_mask.eq(0)
+                    #mask = state.encoder_mask.eq(0)
+                    mask = state.encoder_mask[:, 51:].eq(0)
                     # src_outputs = self.decoder.embed_tokens(src_tokens)
                 mask = mask.unsqueeze(1)
                 input_embed = self.decoder.embed_tokens(src_tokens)  # bsz x max_word_len x hidden_size
                 input_embed = self.dropout_layer(input_embed)
                 if self.avg_feature:  # 先把feature合并一下
-                    src_outputs = (src_outputs + input_embed) / 2
+                    #src_outputs = (src_outputs + input_embed) / 2
+                    src_outputs = (src_outputs[:, 51:] + input_embed) / 2
                 word_scores = torch.einsum(
                     'blh,bnh->bln', hidden_state,
-                    src_outputs)  # bsz x max_len x max_word_len
+                    src_outputs[:, 51:])  # bsz x max_len x max_word_len
                 if not self.avg_feature:
                     gen_scores = torch.einsum(
                         'blh,bnh->bln', hidden_state,
@@ -449,17 +451,19 @@ class MultiModalBartDecoder_span(nn.Module
                                                         src_outputs.size(-1)),
                         dim=1)
                 else:
-                    mask = state.encoder_mask.eq(0)
+                    #mask = state.encoder_mask.eq(0)
+                     mask = state.encoder_mask[:, 51:].eq(0)
                     # src_outputs = self.decoder.embed_tokens(src_tokens)
                 mask = mask.unsqueeze(1)
                 input_embed = self.decoder.embed_tokens(
                     src_tokens)  # bsz x max_word_len x hidden_size
                 input_embed = self.dropout_layer(input_embed)
                 if self.avg_feature:  # 先把feature合并一下
-                    src_outputs = (src_outputs + input_embed) / 2
+                    #src_outputs = (src_outputs + input_embed) / 2
+                    src_outputs = (src_outputs[:, 51:] + input_embed) / 2
                 word_scores = torch.einsum(
                     'blh,bnh->bln', hidden_state,
-                    src_outputs)  # bsz x max_len x max_word_len
+                    src_outputs[:, 51:])  # bsz x max_len x max_word_len
                 if not self.avg_feature:
                     gen_scores = torch.einsum(
                         'blh,bnh->bln', hidden_state,
