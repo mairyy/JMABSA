@@ -148,6 +148,9 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         self.dep_linear2=nn.Linear(768,768)
         self.dep_att_linear=nn.Linear(768*2,1)
 
+        self.img_att = GAU(args, 768, 128)
+        self.text_att = GAU(args, 768, 128)
+
 
     def get_noun_embed(self,feature,noun_mask):
         # print(feature.shape,noun_mask.shape)
@@ -200,18 +203,24 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             noun_embed=self.get_noun_embed(encoder_outputs,noun_mask)
             encoder_outputs=self.noun_attention(encoder_outputs,noun_embed,mode=self.nn_attention_mode)
 
+        text_att_emb = self.text_att(encoder_outputs)
         # gcn
         senti_feature, context_feature, mix_feature = None, None, None
         if self.sentinet_on and self.gcn_on:
-            mix_feature = self.multimodal_GCN(encoder_outputs, dependency_matrix, attention_mask,noun_mask,sentiment_value)
+            mix_feature = self.multimodal_GCN(text_att_emb, dependency_matrix, attention_mask,noun_mask,sentiment_value)
         elif self.gcn_on:
             #mix_feature = self.multimodal_GCN(encoder_outputs, dependency_matrix, attention_mask,noun_mask)
-            mix_feature = self.syntatic_GCN(encoder_outputs, dependency_matrix, attention_mask) #syntatic representation [8,34,768]
+            mix_feature = self.syntatic_GCN(text_att_emb, dependency_matrix, attention_mask) #syntatic representation [8,34,768]
         
         #print("mix", mix_feature)
         embedded_images = torch.stack(embedded_images) #[8,49,768]
+
+        img_att_emb = self.img_att(embedded_images)
+        
+
         #print("img", embedded_images)
-        img_att = self.attention(mix_feature, embedded_images, embedded_images) #img feature relevant to text
+        #img_att = self.attention(mix_feature, embedded_images, embedded_images) #img feature relevant to text
+        img_att = self.attention(text_att_emb, img_att_emb, img_att_emb)
         #print("att", img_att)
         alpha = 0.7 #fused_weight
         fused_feature = alpha * mix_feature + (1-alpha) * img_att
@@ -226,7 +235,7 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             fused_feature
         )
         # setattr(state, 'tgt_seq_len', tgt_seq_len)
-        return state, embedded_images, mix_feature
+        return state, embedded_images, encoder_outputs, img_att_emb, text_att_emb
 
 
     def noun_attention(self,encoder_outputs,noun_embed,mode='multi-head'):
@@ -424,7 +433,8 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             output_attentions=None,
             output_hidden_states=None,
     ):
-        state, embedded_images, mix_feature = self.prepare_state(input_ids, image_features,noun_mask, attention_mask,dependency_matrix,sentiment_value)
+        state, embedded_images, encoder_outputs, img_att_emb, text_att_emb = \
+            self.prepare_state(input_ids, image_features, noun_mask, attention_mask, dependency_matrix, sentiment_value)
         spans, span_mask = [
             aesc_infos['labels'].to(input_ids.device),
             aesc_infos['masks'].to(input_ids.device)
@@ -435,7 +445,9 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         span_loss = self.span_loss_fct(spans[:, 1:], logits, span_mask[:, 1:])
         #print("span", span_loss)
         #con_loss = self.con_loss_fct(torch.cat([mix_feature, embedded_images], dim=1), device=input_ids.device)
-        con_loss = self.contrastive_loss(mix_feature, embedded_images)
+        con_loss_1 = self.contrastive_loss(encoder_outputs, embedded_images)
+        con_loss_2 = self.contrastive_loss(text_att_emb, img_att_emb)
+        con_loss = 0.5 * (con_loss_1 + con_loss_2)
         #print("con", con_loss)
 
         beta = 0.5 #loss belance param
@@ -528,6 +540,42 @@ class Attention(nn.Module) :
         context = context.view(*new_size)
         return context
 
+class GAU(nn.Module):
+    def __init__(self, args, in_dim, att_dim):
+        super(GAU, self).__init__()
+        self.norm = nn.LayerNorm(in_dim)
+        self.dense_u = nn.Linear(in_dim, in_dim*2)
+        self.dense_v = nn.Linear(in_dim, in_dim*2)
+        self.attn_dense = nn.Linear(in_dim, att_dim)
+        self.output_dense = nn.Linear(in_dim*2, in_dim)
+
+    def scale_offset(self, x):
+        gamma = nn.Parameter(torch.ones(x.shape[-1], device=x.device), requires_grad=True)
+        beta = nn.Parameter(torch.zeros(x.shape[-1], device=x.device), requires_grad=True)
+        return x * gamma + beta
+
+    def attention(self, x, v, rel_pos_bias=None):
+        z = self.attn_dense(x)
+        q, k = self.scale_offset(z), self.scale_offset(z)
+        qk = torch.einsum('bns,bms->bnm', q, k) 
+
+        if rel_pos_bias is not None:
+            qk += rel_pos_bias(q, k)
+
+        a = F.relu(qk) ** 2 
+        return torch.einsum('bnm,bme->bne', a, v) 
+
+    def forward(self, x):
+        shortcut = x
+        x = self.norm(x)
+
+        u = self.dense_u(x)
+        v = self.dense_v(x)
+
+        attn_out = self.attention(x, v)
+        x = u * attn_out
+
+        return self.output_dense(x) + shortcut
 
 from spacy.lang.en.tag_map import TAG_MAP
 import spacy

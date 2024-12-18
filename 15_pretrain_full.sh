@@ -4,7 +4,6 @@ do
 		python MAESC_training.py \
           --dataset twitter15 ./src/data/jsons/twitter15_info.json \
           --checkpoint_dir ./train15 \
-          --checkpoint ./src/checkpoint\
           --model_config config/pretrain_base.json \
           --log_dir 15_aesc \
           --num_beams 4 \

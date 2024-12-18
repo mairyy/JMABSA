@@ -103,8 +103,8 @@ class SequenceGeneratorModel(nn.Module):
         :param torch.LongTensor src_seq_len: bsz
         :return:
         """
-        state, embedded_images, mix_feature = self.seq2seq_model.prepare_state(input_ids, image_features,noun_mask,
-                                                 attention_mask,dependency_matrix,sentiment_value)
+        state, embedded_images, encoder_outputs, img_att_emb, text_att_emb = \
+            self.seq2seq_model.prepare_state(input_ids, image_features, noun_mask, attention_mask, dependency_matrix, sentiment_value)
         # state.encoder_output=att_features
         # state.encoder_mask=noun_mask
         tgt_tokens = aesc_infos['labels'].to(input_ids.device)

@@ -342,7 +342,7 @@ def parse_args():
                         type=int,
                         help=' ')
     parser.add_argument('--no_train',
-                        default=True,
+                        default=False,
                         type=bool,
                         help=' ')
     parser.add_argument('--trc_pretrain_file',
