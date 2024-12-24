@@ -17,3 +17,6 @@ sh 17_pretrain_full.sh
 
 ## Acknowledgements
 Our framework and some codes are based on [VLP-MABSA](https://github.com/NUSTM/VLP-MABSA), thanks very much!
+
+------------------------------------
+run preprocess.py & rdgcn_preocessor.py

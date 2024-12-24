@@ -68,7 +68,9 @@ class SequenceGeneratorModel(nn.Module):
                 sentiment_value,
                 noun_mask,
                 attention_mask=None,
-                dependency_matrix=None,
+                #dependency_matrix=None,
+                syn_dep_adj_matrix=None,
+                syn_dis_adj_matrix=None,
                 aesc_infos=None,
                 first=None):
         """
@@ -85,7 +87,9 @@ class SequenceGeneratorModel(nn.Module):
                                   sentiment_value=sentiment_value,
                                   noun_mask=noun_mask,
                                   attention_mask=attention_mask,
-                                  dependency_matrix=dependency_matrix,
+                                  #dependency_matrix=dependency_matrix,
+                                  syn_dep_adj_matrix=syn_dep_adj_matrix,
+                                  syn_dis_adj_matrix=syn_dis_adj_matrix,
                                   aesc_infos=aesc_infos)
 
     def predict(self,
@@ -94,7 +98,9 @@ class SequenceGeneratorModel(nn.Module):
                 sentiment_value,
                 noun_mask,
                 attention_mask=None,
-                dependency_matrix=None,
+                #dependency_matrix=None,
+                syn_dep_adj_matrix=None,
+                syn_dis_adj_matrix=None,
                 aesc_infos=None):
         """
         给定source的内容，输出generate的内容
@@ -103,8 +109,8 @@ class SequenceGeneratorModel(nn.Module):
         :param torch.LongTensor src_seq_len: bsz
         :return:
         """
-        state = self.seq2seq_model.prepare_state(input_ids, image_features,noun_mask,
-                                                 attention_mask,dependency_matrix,sentiment_value)
+        state = self.seq2seq_model.prepare_state(input_ids, image_features, noun_mask,
+                                                 attention_mask, syn_dep_adj_matrix, syn_dis_adj_matrix, sentiment_value)
         # state.encoder_output=att_features
         # state.encoder_mask=noun_mask
         tgt_tokens = aesc_infos['labels'].to(input_ids.device)
@@ -677,11 +683,14 @@ def _beam_search_generate(decoder: Seq2SeqDecoder,
             best_hyp = torch.cat(
                 [best_hyp, best_hyp.new_ones(1) * _eos_token_id])
         tgt_len[i] = len(best_hyp)
+        print(best_hyp, len(best_hyp))
         best.append(best_hyp)
+    print(len(best))
 
     # generate target batch
     decoded = token_ids.new_zeros(batch_size,
                                   tgt_len.max().item()).fill_(pad_token_id)
+    print(decoded.shape, tgt_len.shape)
     for i, hypo in enumerate(best):
         decoded[i, :tgt_len[i]] = hypo
 

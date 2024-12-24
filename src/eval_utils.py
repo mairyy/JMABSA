@@ -30,10 +30,12 @@ def eval(args, model, img_encoder,loader, metric, device):
             sentiment_value=batch['sentiment_value'].to(device) if batch['sentiment_value'] is not None else None,
             noun_mask=batch['noun_mask'].to(device),
             attention_mask=batch['attention_mask'].to(device),
-            dependency_matrix=batch['dependency_matrix'].to(device),
+            syn_dep_adj_matrix=batch['syn_dep_matrix'].to(device),
+            syn_dis_adj_matrix=batch['syn_dis_matrix'].to(device),
             aesc_infos=aesc_infos)
         metric.evaluate(aesc_infos['spans'], predict,
                         aesc_infos['labels'].to(device))
+        print("Eval {}/{}".format(i, len(loader)))
         # break
 
     res = metric.get_metric()

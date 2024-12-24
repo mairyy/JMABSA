@@ -19,8 +19,6 @@ do
           --trc_pretrain_file TRC_ckpt/pytorch_model.bin \
           --nn_attention_on \
           --nn_attention_mode 0\
-          --trc_on \
           --gcn_on \
-          --dep_mode 2 \
-          --sentinet
+          --dep_mode 2
 done

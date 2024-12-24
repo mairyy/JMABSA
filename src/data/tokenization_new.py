@@ -1,23 +1,17 @@
-import copy
 import torch
 import numpy as np
 from transformers import BartTokenizer, AutoTokenizer
 from itertools import chain
 from functools import cmp_to_key
-#from spacy.lang.en.tag_map import TAG_MAP
-import json
-#import en_core_web_sm
-#nlp = en_core_web_sm.load()
 import spacy
 nlp = spacy.load("en_core_web_sm")
-from spacy import displacy
-
+import networkx as nx
+import pickle
 
 def cmp(v1, v2):
     if v1[0] == v2[0]:
         return v1[1] - v2[1]
     return v1[0] - v2[0]
-
 
 def matrix_pad(mat, pad_cl):
     # 在pad_cl后面插入0
@@ -31,6 +25,35 @@ def matrix_pad(mat, pad_cl):
     mat[pad_cl + 1, :] = 0
     return mat
 
+def dep_adj_expansion(syn_adj, max_len, weight):
+    for node_id in range(max_len):
+        syn_adj.append([node_id, node_id, weight])
+    #print(syn_adj)
+    syn_nx = nx.Graph()
+    syn_nx.add_nodes_from(range(max_len))
+    syn_nx.add_weighted_edges_from(syn_adj)
+    syn_adj_ = nx.adjacency_matrix(syn_nx).A
+    return syn_adj_
+
+def dis_adj_expansion(syn_adj, max_len, weight, max_tree_dis):
+    syn_adj_ = []
+    for node_s_id in range(max_len):
+        for node_e_id in range(max_len):
+            if node_s_id == node_e_id:
+                syn_adj_.append([node_s_id, node_e_id, weight])
+            else:
+                syn_adj_.append([node_s_id, node_e_id, max_tree_dis])
+    syn_nx_ = nx.Graph()
+    syn_nx_.add_nodes_from(range(max_len))
+    syn_nx_.add_weighted_edges_from(syn_adj_)
+    syn_adj_ = nx.adjacency_matrix(syn_nx_).A
+    syn_nx = nx.Graph()
+    syn_nx.add_weighted_edges_from(syn_adj)
+    syn_adj = nx.adjacency_matrix(syn_nx).A
+    ins_len = len(syn_adj)
+    syn_adj_[:ins_len, :ins_len] = syn_adj
+
+    return syn_adj_
 
 class ConditionTokenizer:
     """
@@ -177,10 +200,13 @@ class ConditionTokenizer:
             self.mapping2targetid[key] = len(self.mapping2targetid) + 2
         print(self.mapping2id)
 
+        self.root_id = args.vocab_dep.get('ROOT')
+
     def encode(self, *args, **kwargs):
         return self._base_tokenizer(*args, **kwargs)
 
-    def pad_tokens(self, tokens, noun_masks=None, dependency_matrix=None):
+    def pad_tokens(self, tokens, noun_masks=None, syn_dep_adj_matrix=None, syn_dis_adj_matrix=None):
+        #print(syn_dis_adj_matrix, syn_dep_adj_matrix)
         max_len = max([len(x) for x in tokens])
 
         pad_result = torch.full((len(tokens), max_len), self.pad_token_id)
@@ -194,20 +220,28 @@ class ConditionTokenizer:
             for i, x in enumerate(tokens):
                 noun_mask[i, :len(x)] = torch.tensor(noun_masks[i], dtype=torch.bool)
 
-        if dependency_matrix is not None:
-            ret_dependency_matrix = torch.zeros([len(tokens), max_len, max_len], dtype=torch.float)
+        if syn_dep_adj_matrix is not None:
+            ret_dep_matrix = torch.zeros([len(tokens), max_len, max_len], dtype=torch.int64)
             for i in range(len(tokens)):
-                dim = dependency_matrix[i].shape[0]
-                ret_dependency_matrix[i, :dim, :dim] = dependency_matrix[i]
+                dim = syn_dep_adj_matrix[i].shape[0]
+                ret_dep_matrix[i, :dim, :dim] = torch.from_numpy(syn_dep_adj_matrix[i])
+
+        if syn_dis_adj_matrix is not None:
+            ret_dis_matrix = torch.zeros([len(tokens), max_len, max_len], dtype=torch.int64)
+            for i in range(len(tokens)):
+                dim = syn_dis_adj_matrix[i].shape[0]
+                ret_dis_matrix[i, :dim, :dim] = torch.from_numpy(syn_dis_adj_matrix[i])
 
         if noun_masks is None:
             noun_mask = None
-        if dependency_matrix is None:
-            ret_dependency_matrix = None
+        if syn_dep_adj_matrix is None:
+            ret_dep_matrix = None
+        if syn_dis_adj_matrix is None:
+            ret_dis_matrix = None
+        #print(ret_dep_matrix, ret_dis_matrix)
+        return pad_result, mask, noun_mask, ret_dep_matrix, ret_dis_matrix
 
-        return pad_result, mask, noun_mask, ret_dependency_matrix
-
-    def encode_condition(self, img_num=None, sentence=None, text_only=False):
+    def encode_condition(self, img_num=None, sentence=None, text_only=False, syn_dis_adj=None, syn_dep_adj=None):
         """
         tokenize text, image features and event
         the output format (after decoded back):
@@ -256,25 +290,7 @@ class ConditionTokenizer:
                         noun_position.append(j)
                 noun_positions.append(noun_position)
 
-            # 处理依赖矩阵
-            if self.gcn_on:
-                dependency_matrix = [torch.zeros([len(sentence_split[i]), len(sentence_split[i])]) for i in
-                                 range(len(sentence_split))]
-                for i, split in enumerate(sentence_split):
-                    # assert len(sentence_split[i]) == len(pos_doc[i])
-                    for t in pos_doc[i]:
-                        dependency_matrix[i][t.i][t.i] = 5
-                        for child in t.children:
-                            dependency_matrix[i][t.i][child.i] = 1
-                            dependency_matrix[i][child.i][t.i] = 1
-
-                            for cchild in child.children:
-                                dependency_matrix[i][t.i][cchild.i] = 1
-                                dependency_matrix[i][cchild.i][t.i] = 1
-            else:
-                dependency_matrix=None
-
-            input_sentence_tokens = []
+            input_sentence_tokens, syn_dep_adj_matrix, syn_dis_adj_matrix = [], [], []
             assert len(sentence_split) == len(pos_doc)
             noun_masks = []
             # token_index 保存每个句子中每个token在 dependency_matrix对应的起始位置
@@ -287,10 +303,7 @@ class ConditionTokenizer:
             for i, split in enumerate(sentence_split):
                 noun_mask = [0]
                 word_bpes = [self.bos_token_id]
-                if self.gcn_on:
-                    # # 扩展依赖矩阵
-                    dependency_matrix[i] = matrix_pad(dependency_matrix[i], -1)
-                    dependency_matrix[i][0][0] = 1
+
                 sentiment = [0]
                 for j, word in enumerate(split):
                     bpes = self._base_tokenizer.tokenize(word, add_prefix_space=True)
@@ -310,28 +323,7 @@ class ConditionTokenizer:
                                     sentiment.append(float(self.senticNet[s]))
                                 else:
                                     sentiment.append(0)
-                    if self.gcn_on:
-                        # 扩展依赖矩阵
-                        if len(bpes) > 1:
-                            # 依赖矩阵扩展len(bpes)-1行
-                            for d_i in range(len(bpes) - 1):
-                                # 在pad_index后插入
-                                pad_index = token_index[i][j] + d_i
-                                dependency_matrix[i] = matrix_pad(dependency_matrix[i], pad_index)
-                                dependency_matrix[i][pad_index + 1][pad_index + 1] = 5
-                                # 找j行不为0的部分
-                                have_arc = torch.nonzero(
-                                    dependency_matrix[i][token_index[i][j]] == 1).squeeze().numpy().tolist()
-                                if isinstance(have_arc, int):
-                                    have_arc = [have_arc]
-                                for arc_x in have_arc:
-                                    if arc_x != token_index[i][j]:
-                                        dependency_matrix[i][pad_index + 1][arc_x] = 1
-                                        dependency_matrix[i][arc_x][pad_index + 1] = 1
-                            # token_index该token后位置调整
-                            for d_j in range(j + 1, len(split)):
-                                token_index[i][d_j] += len(bpes)
-                                token_index[i][d_j] -= 1
+                    
                     word_bpes.extend(bpes)
                 word_bpes.append(self.eos_token_id)
                 if self.sentinet_on:
@@ -340,9 +332,9 @@ class ConditionTokenizer:
                     # assert len(word_bpes) == len(sentiment)
 
                 # # 扩展依赖矩阵
-                if self.gcn_on:
-                    dependency_matrix[i] = matrix_pad(dependency_matrix[i], dependency_matrix[i].shape[0] - 1)
-                    dependency_matrix[i][-1][-1] = 1
+                #if self.gcn_on:
+                    #dependency_matrix[i] = matrix_pad(dependency_matrix[i], dependency_matrix[i].shape[0] - 1)
+                    #dependency_matrix[i][-1][-1] = 1
                 # assert len(word_bpes)==dependency_matrix[i].shape[0]
                 noun_mask += [0]
                 # _word_bpes = list(chain(*word_bpes))
@@ -350,9 +342,14 @@ class ConditionTokenizer:
                 input_sentence_tokens.append(word_bpes)
                 # assert len(word_bpes)==len(noun_mask)
                 noun_masks.append(noun_mask)
+                syn_dep_adj_matrix.append(dep_adj_expansion(syn_dep_adj[i], len(split), self.root_id))
+                syn_dis_adj_matrix.append(dis_adj_expansion(syn_dis_adj[i], len(split), 0, 10))
             # assert len(input_sentence_tokens)==len(noun_masks)
+                #print(len(input_sentence_tokens), syn_dis_adj_matrix[-1], syn_dep_adj_matrix[-1])
+
 
         encoded = {}
+        #print(len(input_sentence_tokens[0]), syn_dep_adj_matrix[0].shape, len(syn_dep_adj_matrix), syn_dis_adj_matrix[0].shape, len(syn_dis_adj_matrix))
         if image_text is not None:
             image_sentence = self.encode(image_text,
                                          add_special_tokens=False,
@@ -363,8 +360,10 @@ class ConditionTokenizer:
             # input_sentence_tokens, input_sentence_mask, noun_mask= self.pad_tokens(
             #     input_sentence_tokens, noun_masks)
 
-            input_sentence_tokens, input_sentence_mask, noun_mask, dependency_matrix = self.pad_tokens(
-                input_sentence_tokens, noun_masks, dependency_matrix)
+            #input_sentence_tokens, input_sentence_mask, noun_mask, dependency_matrix = self.pad_tokens(
+            #    input_sentence_tokens, noun_masks, dependency_matrix)
+            input_sentence_tokens, input_sentence_mask, noun_mask, syn_dep_adj_matrix, syn_dis_adj_matrix = self.pad_tokens(
+                input_sentence_tokens, noun_masks, syn_dep_adj_matrix, syn_dis_adj_matrix)
 
             # 填充情感值
             if self.sentinet_on:
@@ -381,16 +380,23 @@ class ConditionTokenizer:
             noun_mask = torch.cat((torch.zeros(image_ids.size(), dtype=torch.bool), noun_mask), 1)
             # assert attention_mask.shape==noun_mask.shape
         else:
-            input_sentence_tokens, input_sentence_mask, noun_mask, dependency_matrix, _ = self.pad_tokens(
-                input_sentence_tokens, noun_masks, dependency_matrix)
+            #input_sentence_tokens, input_sentence_mask, noun_mask, dependency_matrix = self.pad_tokens(
+            #    input_sentence_tokens, noun_masks, dependency_matrix)
+            
+            input_sentence_tokens, input_sentence_mask, noun_mask, syn_dep_adj_matrix, syn_dis_adj_matrix = self.pad_tokens(
+                input_sentence_tokens, noun_masks, syn_dep_adj_matrix, syn_dis_adj_matrix)
+            
             input_ids = input_sentence_tokens
             attention_mask = input_sentence_mask
-
+            #print(input_ids.shape, dependency_matrix.shape)
         encoded['input_ids'] = input_ids
 
         encoded['attention_mask'] = attention_mask
         encoded['noun_mask'] = noun_mask
-        encoded['dependency_matrix'] = dependency_matrix
+        #encoded['dependency_matrix'] = dependency_matrix
+        encoded['syn_dep_adj_matrix'] = syn_dep_adj_matrix
+        encoded['syn_dis_adj_matrix'] = syn_dis_adj_matrix
+        #print(syn_dep_adj_matrix, syn_dis_adj_matrix)
         if self.sentinet_on == False:
             sentiment_value = None
         encoded['sentiment_value'] = sentiment_value

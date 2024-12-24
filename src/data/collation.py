@@ -57,12 +57,15 @@ class Collator:
         image_features =[x['img_feat'] for x in batch]
 
         img_num = [49]*len(image_features)
+        #img_num = None
 
         target = [x['sentence'] for x in batch]
         sentence = list(target)
+        syn_dis_adj = [x['syn_dis_adj'] for x in batch]
+        syn_dep_adj = [x['syn_dep_adj'] for x in batch]
 
         encoded_conditions = self._tokenizer.encode_condition(
-            img_num=img_num, sentence=sentence, text_only=self.text_only)
+            img_num=img_num, sentence=sentence, text_only=self.text_only, syn_dis_adj=syn_dis_adj, syn_dep_adj=syn_dep_adj)
 
         input_ids = encoded_conditions['input_ids']
         output = {}
@@ -75,9 +78,9 @@ class Collator:
         output['sentiment_value']=encoded_conditions['sentiment_value']
 
         output['noun_mask']=encoded_conditions['noun_mask']
-        output['dependency_matrix']=encoded_conditions['dependency_matrix']
-
-
+        #output['dependency_matrix']=encoded_conditions['dependency_matrix']
+        output['syn_dep_matrix'] = encoded_conditions['syn_dep_adj_matrix']
+        output['syn_dis_matrix'] = encoded_conditions['syn_dis_adj_matrix']
 
         if self._has_label:
             if self._aesc_enabled:
@@ -88,7 +91,7 @@ class Collator:
             if self._trc_enabled:
                 output['ifpairs']=[x['ifpairs'] for x in batch]
 
-        output['image_id'] = [x['image_id'] for x in batch]
+        #output['image_id'] = [x['image_id'] for x in batch]
         if self._trc_enabled==False:
             output['gt'] = [x['gt'] for x in batch]
         return output

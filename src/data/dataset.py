@@ -11,19 +11,19 @@ from torchvision import transforms
 import pdb
 
 class Twitter_Dataset(data.Dataset):
-    def __init__(self,img_path,infos, split):
+    def __init__(self, args, img_path,infos, split):
         self.path_img = img_path
         self.infos = json.load(open(infos, 'r'))
 
         if split == 'train':
             self.data_set = json.load(
-                open(self.infos['data_dir'] + '/train.json', 'r'))
+                open(self.infos['data_dir'] + '/train_preprocessed.json', 'r'))
         elif split == 'dev':
             self.data_set = json.load(
-                open(self.infos['data_dir'] + '/dev.json', 'r'))
+                open(self.infos['data_dir'] + '/dev_preprocessed.json', 'r'))
         elif split == 'test':
             self.data_set = json.load(
-                open(self.infos['data_dir'] + '/test.json', 'r'))
+                open(self.infos['data_dir'] + '/test_preprocessed.json', 'r'))
         else:
             raise RuntimeError("split type is not exist!!!")
 
@@ -33,14 +33,6 @@ class Twitter_Dataset(data.Dataset):
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor()])
 
-
-        # crop_size=224
-        # self.transform = transforms.Compose([
-        #     transforms.RandomCrop(crop_size),  # args.crop_size, by default it is set to be 224
-        #     transforms.RandomHorizontalFlip(),
-        #     transforms.ToTensor(),
-        #     transforms.Normalize((0.485, 0.456, 0.406),
-        #                          (0.229, 0.224, 0.225))])
         self.count_img_error=0
 
     def __len__(self):
@@ -90,6 +82,8 @@ class Twitter_Dataset(data.Dataset):
         output['image_id'] = img_id
         gt = self.get_gt_aspect_senti(data['aspects'])
         output['gt'] = gt
+        output['syn_dep_adj'] = [(d[0], d[1], d[2]) for d in data['syn_dep_adj']]
+        output['syn_dis_adj'] = [(d[0], d[1], d[2]) for d in data['syn_dis_adj']]
         return output
 
 

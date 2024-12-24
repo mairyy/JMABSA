@@ -24,6 +24,8 @@ from src.model.GAT import GAT
 import numpy as np
 import os
 
+from src.model.RDGNN import RDGNN
+
 class MultiModalBartModel_AESC(PretrainedBartModel):
     def build_model(self,
                     args,
@@ -76,6 +78,7 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         multimodal_encoder = MultiModalBartEncoder(config, encoder,
                                                    tokenizer.img_feat_id,
                                                    tokenizer.cls_token_id)
+        #multimodal_encoder = encoder
         return (multimodal_encoder, decoder)
 
 
@@ -138,6 +141,7 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         self.dep_linear2=nn.Linear(768,768)
         self.dep_att_linear=nn.Linear(768*2,1)
 
+        self.RDGNN = RDGNN(args, 1.8)
 
     def get_noun_embed(self,feature,noun_mask):
         # print(feature.shape,noun_mask.shape)
@@ -165,7 +169,9 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
                       # noun_ids,
                       noun_mask,
                       attention_mask=None,
-                      dependency_matrix=None,
+                      #dependency_matrix=None,
+                      syn_dep_adj_matrix=None,
+                      syn_dis_adj_matrix=None,
                       sentiment_value=None,
                       pos_ids=None,
                       raw_token_ids=None,
@@ -180,18 +186,18 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         encoder_mask = attention_mask
         src_embed_outputs = hidden_states[0]
 
-        if self.nn_attention_on:
+        #if self.nn_attention_on:
             # 获取名词的embedding
-            noun_embed=self.get_noun_embed(encoder_outputs,noun_mask)
-            encoder_outputs=self.noun_attention(encoder_outputs,noun_embed,mode=self.nn_attention_mode)
+        #    noun_embed=self.get_noun_embed(encoder_outputs,noun_mask)
+        #    encoder_outputs=self.noun_attention(encoder_outputs,noun_embed,mode=self.nn_attention_mode)
 
         # gcn
-        senti_feature, context_feature,mix_feature=None,None,None
-        if self.sentinet_on and self.gcn_on:
-            mix_feature = self.multimodal_GCN(encoder_outputs, dependency_matrix, attention_mask,noun_mask,sentiment_value)
-        elif self.gcn_on:
-            mix_feature = self.multimodal_GCN(encoder_outputs, dependency_matrix, attention_mask,noun_mask)
-
+        #senti_feature, context_feature,mix_feature=None,None,None
+        #if self.sentinet_on and self.gcn_on:
+        #    mix_feature = self.multimodal_GCN(encoder_outputs, dependency_matrix, attention_mask,noun_mask,sentiment_value)
+        #elif self.gcn_on:
+        #    mix_feature = self.multimodal_GCN(encoder_outputs, dependency_matrix, attention_mask,noun_mask)
+        mix_feature = self.RDGNN(encoder_outputs, syn_dep_adj_matrix, syn_dis_adj_matrix, True)
 
         state = BartState(
             encoder_outputs,
@@ -312,14 +318,16 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             sentiment_value,
             noun_mask,
             attention_mask=None,
-            dependency_matrix=None,
+            #dependency_matrix=None,
+            syn_dep_adj_matrix=None,
+            syn_dis_adj_matrix=None,
             aesc_infos=None,
             encoder_outputs: Optional[Tuple] = None,
             use_cache=None,
             output_attentions=None,
             output_hidden_states=None,
     ):
-        state = self.prepare_state(input_ids, image_features,noun_mask, attention_mask,dependency_matrix,sentiment_value)
+        state = self.prepare_state(input_ids, image_features, noun_mask, attention_mask,syn_dep_adj_matrix, syn_dis_adj_matrix,sentiment_value)
         spans, span_mask = [
             aesc_infos['labels'].to(input_ids.device),
             aesc_infos['masks'].to(input_ids.device)

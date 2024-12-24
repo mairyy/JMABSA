@@ -28,6 +28,8 @@ import torch.backends.cudnn as cudnn
 import src.resnet.resnet as resnet
 from src.resnet.resnet_utils import myResnet
 import collections
+import pickle
+from src.data.rdgcn_processor import VocabHelp
 
 def main(rank, args):
     timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
@@ -67,6 +69,9 @@ def main(rank, args):
         device = torch.device('mps')
         map_location = device
     args.device=device
+    infos = json.load(open(args.dataset[0][1], 'r'))
+    args.vocab_dep = pickle.load(open(infos['data_dir'] + '/vocab_dep.vocab', 'rb')).stoi
+    args.dep_vocab_size = len(args.vocab_dep)
     tokenizer = ConditionTokenizer(args=args)
     label_ids = list(tokenizer.mapping2id.values())
     senti_ids = list(tokenizer.senti2id.values())
@@ -153,10 +158,10 @@ def main(rank, args):
                             aesc_enabled=True,
                             text_only=args.text_only)
 
-    train_dataset = Twitter_Dataset(args.img_path,args.dataset[0][1], split='train')
+    train_dataset = Twitter_Dataset(args, args.img_path,args.dataset[0][1], split='train')
 
-    dev_dataset = Twitter_Dataset(args.img_path,args.dataset[0][1], split='dev')
-    test_dataset = Twitter_Dataset(args.img_path,args.dataset[0][1], split='test')
+    dev_dataset = Twitter_Dataset(args, args.img_path,args.dataset[0][1], split='dev')
+    test_dataset = Twitter_Dataset(args, args.img_path,args.dataset[0][1], split='test')
 
     train_loader = DataLoader(dataset=train_dataset,
                               batch_size=args.batch_size,
@@ -405,6 +410,21 @@ def parse_args():
                         type=int,
                         default=0,
                         )
+    
+    #RDGNN
+    parser.add_argument('--max_tree_dis', default=10, type=int, help='max tree distance')
+    parser.add_argument('--bart_dim', default=768, type=int, help='bart hidden state dim')
+    parser.add_argument('--gnn_output_dim', default=768, type=int, help='gnn hidden dim')
+    parser.add_argument('--bart_dropout', default=0.3, type=float, help='bart dropout')
+    parser.add_argument('--gnn_dropout', default=0.1, type=float, help='gnn dropout')
+    parser.add_argument('--dep_embed_dim', default=30, type=int, help='dep type embed dim')
+    parser.add_argument('--gnn_layer_num', default=2, type=int, help='gnn layer number')
+    parser.add_argument('--RL_K', default=0.1, type=float, help='K for updating by reinforcement learning')
+    parser.add_argument('--RL_K_max', default=2., type=float, help='max of K')
+    parser.add_argument('--RL_K_min', default=0.1, type=float, help='min of K')
+    parser.add_argument('--RL_S', default=0.1, type=float, help='step to update K')
+    parser.add_argument('--RL_R', default=10, type=int, help='get last RL_R of RL history to decide stopping or continueing RL')
+    
     args = parser.parse_args()
     if args.encoder=='trc':
         args.trc_on=True
