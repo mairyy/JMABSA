@@ -3,7 +3,7 @@ nlp = spacy.load("en_core_web_sm")
 from typing import DefaultDict
 import json
 
-def get_short(path='/Users/admin/Documents/Projects/JMABSA/src/data/twitter2015/test.json', desPath='test.json'):
+def get_short(path='/Users/admin/Documents/Projects/JMABSA/src/data/twitter2017/test.json', desPath='test.json'):
     data = json.load(open(path, 'r'))
     for row in data:
         words = row['words']
@@ -78,5 +78,5 @@ def get_short(path='/Users/admin/Documents/Projects/JMABSA/src/data/twitter2015/
 
 if __name__ == '__main__':
     get_short()
-    get_short('/Users/admin/Documents/Projects/JMABSA/src/data/twitter2015/train.json', 'train.json')
-    get_short('/Users/admin/Documents/Projects/JMABSA/src/data/twitter2015/dev.json', 'dev.json')
+    get_short('/Users/admin/Documents/Projects/JMABSA/src/data/twitter2017/train.json', 'train.json')
+    get_short('/Users/admin/Documents/Projects/JMABSA/src/data/twitter2017/dev.json', 'dev.json')

@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 from torch import optim
 import torch
+import torch.nn as nn
 import torch.multiprocessing as mp
 from torch.cuda.amp import GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -101,52 +102,28 @@ def main(rank, args):
     img_encoder.to(device)
 
     if args.checkpoint and args.no_train==False:
-        seq2seq_model = MultiModalBartModel_AESC(bart_config, args,args.bart_model, tokenizer,label_ids)
-        model = SequenceGeneratorModel(seq2seq_model,
-                                       bos_token_id=bos_token_id,
-                                       eos_token_id=eos_token_id,
-                                       max_length=args.max_len,
-                                       max_len_a=args.max_len_a,
-                                       num_beams=args.num_beams,
-                                       do_sample=False,
-                                       repetition_penalty=1,
-                                       length_penalty=1.0,
-                                       pad_token_id=eos_token_id,
-                                       restricter=None)
-        if args.trc_on:
-            trc_pretrain_model=TRCPretrain.from_pretrained(
-                args.trc_pretrain_file,
-                config=bart_config,
-                bart_model=args.bart_model,
-                tokenizer=tokenizer,
-                label_ids=label_ids,
-                senti_ids=senti_ids,
-                args=args,
-                error_on_mismatch=False)
-            if args.encoder=='trc':
-                model.seq2seq_model.encoder.load_state_dict(trc_pretrain_model.encoder.state_dict())
-            model.seq2seq_model.noun_linear.load_state_dict(trc_pretrain_model.noun_linear.state_dict())
-            model.seq2seq_model.multi_linear.load_state_dict(trc_pretrain_model.multi_linear.state_dict())
-            model.seq2seq_model.att_linear.load_state_dict(trc_pretrain_model.att_linear.state_dict())
-            model.seq2seq_model.linear.load_state_dict(trc_pretrain_model.linear.state_dict())
-            model.seq2seq_model.alpha_linear1.load_state_dict(trc_pretrain_model.alpha_linear1.state_dict())
-            model.seq2seq_model.alpha_linear2.load_state_dict(trc_pretrain_model.alpha_linear2.state_dict())
-            logger.info('trc model loaded.')
+        seq2seq_model = torch.load(os.path.join(args.checkpoint, 'AoM.pt'))
+        if args.aesc_enabled == False:
+            model = seq2seq_model
     else:
         seq2seq_model = MultiModalBartModel_AESC(bart_config, args,
                                                  args.bart_model, tokenizer,
                                                  label_ids)
-        model = SequenceGeneratorModel(seq2seq_model,
-                                       bos_token_id=bos_token_id,
-                                       eos_token_id=eos_token_id,
-                                       max_length=args.max_len,
-                                       max_len_a=args.max_len_a,
-                                       num_beams=args.num_beams,
-                                       do_sample=False,
-                                       repetition_penalty=1,
-                                       length_penalty=1.0,
-                                       pad_token_id=eos_token_id,
-                                       restricter=None)
+        if args.aesc_enabled == False:
+            model = seq2seq_model
+        else:
+            model = SequenceGeneratorModel(seq2seq_model,
+                                        bos_token_id=bos_token_id,
+                                        eos_token_id=eos_token_id,
+                                        max_length=args.max_len,
+                                        max_len_a=args.max_len_a,
+                                        num_beams=args.num_beams,
+                                        do_sample=False,
+                                        repetition_penalty=1,
+                                        length_penalty=1.0,
+                                        pad_token_id=eos_token_id,
+                                        restricter=None)
+    
     model.to(device)
 
     optimizer = AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.999))
@@ -155,7 +132,7 @@ def main(rank, args):
 
     logger.info('Loading data...')
     collate_aesc = Collator(tokenizer,
-                            aesc_enabled=True,
+                            aesc_enabled=args.aesc_enabled,
                             text_only=args.text_only)
 
     train_dataset = Twitter_Dataset(args, args.img_path,args.dataset[0][1], split='train')
@@ -176,13 +153,14 @@ def main(rank, args):
                             pin_memory=True,
                             collate_fn=collate_aesc)
     test_loader = DataLoader(dataset=test_dataset,
-                             batch_size=args.batch_size,
-                             shuffle=False,
-                             num_workers=args.num_workers,
-                             pin_memory=True,
-                             collate_fn=collate_aesc)
+                            batch_size=args.batch_size,
+                            shuffle=False,
+                            num_workers=args.num_workers,
+                            pin_memory=True,
+                            collate_fn=collate_aesc)
 
     callback = None
+    criterion = nn.CrossEntropyLoss()
     metric = AESCSpanMetric(eos_token_id,
                             num_labels=len(label_ids),
                             conflict_id=-1,
@@ -191,13 +169,16 @@ def main(rank, args):
 
     if args.no_train:
         if args.dataset[0][0] == 'twitter15':
-            model=torch.load('AoM-ckpt/Twitter2015/AoM.pt', map_location=map_location)
+            model=torch.load(os.path.join(args.checkpoint, 'AoM.pt'), map_location=map_location)
         else:
-            model=torch.load('AoM-ckpt/Twitter2017/AoM.pt', map_location=map_location)
+            model=torch.load(os.path.join(args.checkpoint, 'AoM.pt'), map_location=map_location)
 
         res_test = eval_utils.eval(args, model, img_encoder, test_loader, metric, device)
-        logger.info('TEST  aesc_p:{} aesc_r:{} aesc_f:{}'.format(
-            res_test['aesc_pre'], res_test['aesc_rec'], res_test['aesc_f']))
+        if args.aesc_enabled:
+            logger.info('TEST  aesc_p:{} aesc_r:{} aesc_f:{}'.format(
+                res_test['aesc_pre'], res_test['aesc_rec'], res_test['aesc_f']))
+        else:
+            logger.info('TEST  sc_acc:{} sc_f:{}'.format(res_test['sc_acc'], res_test['sc_f']))
     else:
         model.train()
         img_encoder.train()
@@ -217,7 +198,8 @@ def main(rank, args):
                   log_interval=1,
                   tb_writer=tb_writer,
                   tb_interval=1,
-                  scaler=scaler)
+                  scaler=scaler,
+                  criterion=criterion)
 
 
 def parse_args():
@@ -363,7 +345,7 @@ def parse_args():
                         type=int,
                         help=' ')
     parser.add_argument('--no_train',
-                        default=False,
+                        default=True,
                         type=bool,
                         help=' ')
     parser.add_argument('--trc_pretrain_file',
@@ -410,7 +392,8 @@ def parse_args():
                         type=int,
                         default=0,
                         )
-    
+    parser.add_argument('--aesc_enabled', type=bool, default=False, help='aesc or sc')
+
     #RDGNN
     parser.add_argument('--max_tree_dis', default=10, type=int, help='max tree distance')
     parser.add_argument('--bart_dim', default=768, type=int, help='bart hidden state dim')

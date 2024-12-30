@@ -56,20 +56,24 @@ class Collator:
         batch = [entry for entry in batch if entry is not None]
         image_features =[x['img_feat'] for x in batch]
 
-        img_num = [49]*len(image_features)
-        #img_num = None
+        #img_num = [49]*len(image_features)
+        img_num = None
 
         target = [x['sentence'] for x in batch]
         sentence = list(target)
         syn_dis_adj = [x['syn_dis_adj'] for x in batch]
         syn_dep_adj = [x['syn_dep_adj'] for x in batch]
+        if self._aesc_enabled == False:
+            aspects = [x['aspects'] for x in batch]
+        else:
+            aspects = None
 
         encoded_conditions = self._tokenizer.encode_condition(
-            img_num=img_num, sentence=sentence, text_only=self.text_only, syn_dis_adj=syn_dis_adj, syn_dep_adj=syn_dep_adj)
+            img_num=img_num, sentence=sentence, text_only=self.text_only, syn_dis_adj=syn_dis_adj, syn_dep_adj=syn_dep_adj, aspects=aspects)
 
         input_ids = encoded_conditions['input_ids']
         output = {}
-        condition_img_mask = encoded_conditions['img_mask']
+        #condition_img_mask = encoded_conditions['img_mask']
 
         output['input_ids'] = input_ids
         output['attention_mask'] = encoded_conditions['attention_mask']
@@ -81,6 +85,8 @@ class Collator:
         #output['dependency_matrix']=encoded_conditions['dependency_matrix']
         output['syn_dep_matrix'] = encoded_conditions['syn_dep_adj_matrix']
         output['syn_dis_matrix'] = encoded_conditions['syn_dis_adj_matrix']
+        if self._aesc_enabled == False:
+            output['aspect_mask'] = encoded_conditions['aspect_mask']
 
         if self._has_label:
             if self._aesc_enabled:
@@ -88,10 +94,14 @@ class Collator:
                     target, [x['aesc_spans'] for x in batch],  # target = [x['sentence'] for x in batch]
                     self._max_span_len)
                 output['task'] = 'AESC'
+            else:
+                label_dict = {'POS': 0, 'NEU': 1, 'NEG': 2}
+                output['task'] = 'SC'
+                output['SC'] = torch.tensor([label_dict[x['polarity']] for x in batch])
             if self._trc_enabled:
                 output['ifpairs']=[x['ifpairs'] for x in batch]
 
-        #output['image_id'] = [x['image_id'] for x in batch]
-        if self._trc_enabled==False:
-            output['gt'] = [x['gt'] for x in batch]
+        output['image_id'] = [x['image_id'] for x in batch]
+        #if self._trc_enabled==False:
+        #    output['gt'] = [x['gt'] for x in batch]
         return output

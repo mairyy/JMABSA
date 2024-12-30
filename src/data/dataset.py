@@ -26,6 +26,9 @@ class Twitter_Dataset(data.Dataset):
                 open(self.infos['data_dir'] + '/test_preprocessed.json', 'r'))
         else:
             raise RuntimeError("split type is not exist!!!")
+        
+        if args.aesc_enabled == False:
+            self.data_set = self.get_dataset(self.data_set)
 
         crop_size = 224
         self.transform = transforms.Compose([
@@ -34,10 +37,22 @@ class Twitter_Dataset(data.Dataset):
             transforms.ToTensor()])
 
         self.count_img_error=0
+        self.args = args
 
     def __len__(self):
         return len(self.data_set)
 
+    def get_dataset(self, data):
+        new_dataset = []
+        for d in data:
+            for aspect in d['aspects']:
+                words = d['words']
+                image_id = d['image_id']
+                noun = d['noun']
+                new_dataset.append({'words': words, 'image_id': image_id, 'aspects': aspect, 'noun': noun, 'head': d['head'], 'short': d['short']\
+                                    , 'deprel': d['deprel'], 'syn_dep_adj': d['syn_dep_adj'], 'syn_dis_adj': d['syn_dis_adj']})
+        return new_dataset
+    
     def get_img_feature(self,id):
         image_path = os.path.join(self.path_img, id)
         if not os.path.exists(image_path):
@@ -65,6 +80,9 @@ class Twitter_Dataset(data.Dataset):
         for x in dic:
             gt.append((' '.join(x['term']), x['polarity']))
         return gt
+    
+    def get_aspect(self, dic):
+        return dic['term']
 
     def __getitem__(self, index):
         output = {}
@@ -76,12 +94,15 @@ class Twitter_Dataset(data.Dataset):
         output['sentence'] = ' '.join(data['words'])
         # add
         output['noun']=data['noun']
-
-        aesc_spans = self.get_aesc_spans(data['aspects'])
-        output['aesc_spans'] = aesc_spans
         output['image_id'] = img_id
-        gt = self.get_gt_aspect_senti(data['aspects'])
-        output['gt'] = gt
+        if self.args.aesc_enabled:
+            aesc_spans = self.get_aesc_spans(data['aspects'])
+            output['aesc_spans'] = aesc_spans
+            gt = self.get_gt_aspect_senti(data['aspects'])
+            output['gt'] = gt
+        else:
+            output['aspects'] = self.get_aspect(data['aspects'])
+            output['polarity'] = data['aspects']['polarity']
         output['syn_dep_adj'] = [(d[0], d[1], d[2]) for d in data['syn_dep_adj']]
         output['syn_dis_adj'] = [(d[0], d[1], d[2]) for d in data['syn_dis_adj']]
         return output

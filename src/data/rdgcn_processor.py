@@ -106,8 +106,8 @@ class VocabHelp(object):
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Prepare vocab for relation extraction.')
-    parser.add_argument('--data_dir', default='./src/data/twitter2015', help='TACRED directory.')
-    parser.add_argument('--vocab_dir', default='./src/data/twitter2015', help='Output vocab directory.')
+    parser.add_argument('--data_dir', default='./src/data/twitter2017', help='TACRED directory.')
+    parser.add_argument('--vocab_dir', default='./src/data/twitter2017', help='Output vocab directory.')
     args = parser.parse_args()
     return args
 
@@ -164,6 +164,7 @@ def main():
 
     print("generate syntatic adj matrix...")
     print(dep_vocab.itos, dep_vocab.stoi)
+    #twitter2015
     #['<pad>', '<unk>', 'ROOT', 'punct', 'compound', 'prep', 'pobj', 'nsubj', 'det', 'dobj', 'amod', 'dep', 'advmod', 'aux', 'nmod', \
     # 'nummod', 'appos', 'npadvmod', 'conj', 'poss', 'cc', 'ccomp', 'advcl', 'attr', 'xcomp', 'acl', 'acomp', 'relcl', 'prt', 'mark', \
     # 'pcomp', 'auxpass', 'nsubjpass', 'intj', 'case', 'neg', 'quantmod', 'agent', 'dative', 'oprd', 'expl', 'parataxis', 'csubj', \
@@ -172,6 +173,15 @@ def main():
     # 'conj': 18, 'poss': 19, 'cc': 20, 'ccomp': 21, 'advcl': 22, 'attr': 23, 'xcomp': 24, 'acl': 25, 'acomp': 26, 'relcl': 27, 'prt': 28, \
     # 'mark': 29, 'pcomp': 30, 'auxpass': 31, 'nsubjpass': 32, 'intj': 33, 'case': 34, 'neg': 35, 'quantmod': 36, 'agent': 37, 'dative': 38, \
     # 'oprd': 39, 'expl': 40, 'parataxis': 41, 'csubj': 42, 'predet': 43, 'preconj': 44, 'meta': 45
+    #twitter2017
+    #['<pad>', '<unk>', 'compound', 'punct', 'ROOT', 'prep', 'pobj', 'nsubj', 'det', 'dobj', 'amod', 'advmod', 'aux', 'nummod', 'nmod', \
+    # 'dep', 'poss', 'appos', 'conj', 'cc', 'npadvmod', 'ccomp', 'attr', 'case', 'advcl', 'xcomp', 'acomp', 'mark', 'prt', 'relcl', 'acl', \
+    # 'pcomp', 'auxpass', 'neg', 'nsubjpass', 'quantmod', 'intj', 'dative', 'agent', 'oprd', 'predet', 'expl', 'meta', 'csubj', 'parataxis',
+    #  'preconj'] {'<pad>': 0, '<unk>': 1, 'compound': 2, 'punct': 3, 'ROOT': 4, 'prep': 5, 'pobj': 6, 'nsubj': 7, 'det': 8, 'dobj': 9, 
+    # 'amod': 10, 'advmod': 11, 'aux': 12, 'nummod': 13, 'nmod': 14, 'dep': 15, 'poss': 16, 'appos': 17, 'conj': 18, 'cc': 19, 
+    # 'npadvmod': 20, 'ccomp': 21, 'attr': 22, 'case': 23, 'advcl': 24, 'xcomp': 25, 'acomp': 26, 'mark': 27, 'prt': 28, 'relcl': 29, 
+    # 'acl': 30, 'pcomp': 31, 'auxpass': 32, 'neg': 33, 'nsubjpass': 34, 'quantmod': 35, 'intj': 36, 'dative': 37, 'agent': 38, 
+    # 'oprd': 39, 'predet': 40, 'expl': 41, 'meta': 42, 'csubj': 43, 'parataxis': 44, 'preconj': 45}
     syn_adj_generation(args.data_dir, dep_vocab)
     print("all done.")
 

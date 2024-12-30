@@ -103,45 +103,48 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         self.gcn_dropout=args.gcn_dropout
         self.gcn_proportion=args.gcn_proportion
 
-        self.decoder = MultiModalBartDecoder_span(self.config,
-                                                  tokenizer,
-                                                  share_decoder,
-                                                  tokenizer.pad_token_id,
-                                                  label_ids,
-                                                  self.causal_mask,
-                                                  self.gcn_on,
-                                                  need_tag=need_tag,
-                                                  only_sc=False)
+        #self.decoder = MultiModalBartDecoder_span(self.config,
+        #                                          tokenizer,
+        #                                          share_decoder,
+        #                                          tokenizer.pad_token_id,
+        #                                          label_ids,
+        #                                          self.causal_mask,
+        #                                          self.gcn_on,
+        #                                          need_tag=need_tag,
+        #                                          only_sc=False)
         self.span_loss_fct = Span_loss()
 
         # add
-        self.noun_linear=nn.Linear(768,768)
-        self.multi_linear=nn.Linear(768,768)
-        self.att_linear=nn.Linear(768*2,1)
-        self.attention=Attention(4,768,768)
-        self.linear=nn.Linear(768*2,1)
-        self.linear2=nn.Linear(768*2,1)
+        #self.noun_linear=nn.Linear(768,768)
+        #self.multi_linear=nn.Linear(768,768)
+        #self.att_linear=nn.Linear(768*2,1)
+        #self.attention=Attention(4,768,768)
+        #self.linear=nn.Linear(768*2,1)
+        #self.linear2=nn.Linear(768*2,1)
 
-        self.alpha_linear1=nn.Linear(768,768)
-        self.alpha_linear2=nn.Linear(768,768)
+        #self.alpha_linear1=nn.Linear(768,768)
+        #self.alpha_linear2=nn.Linear(768,768)
 
-        self.senti_linear = nn.Linear(768, 768)
-        self.context_linear = nn.Linear(768, 768)
-        self.mix_linear = nn.Linear(768*2, 768)
-        self.senti_gcn=GCN(768,768,768,dropout=self.gcn_dropout)
-        self.context_gcn=GCN(768,768,768,dropout=self.gcn_dropout)
+        #self.senti_linear = nn.Linear(768, 768)
+        #self.context_linear = nn.Linear(768, 768)
+        #self.mix_linear = nn.Linear(768*2, 768)
+        #self.senti_gcn=GCN(768,768,768,dropout=self.gcn_dropout)
+        #self.context_gcn=GCN(768,768,768,dropout=self.gcn_dropout)
 
         # add
-        self.gat = GAT(768, 768, 0.2, 0.2, n_heads=1)
-        self.gat_linear = nn.Linear(768, 768)
-        self.pos_embedding = POS_embedding(32, 1)
+        #self.gat = GAT(768, 768, 0.2, 0.2, n_heads=1)
+        #self.gat_linear = nn.Linear(768, 768)
+        #self.pos_embedding = POS_embedding(32, 1)
 
-        self.senti_value_linear=nn.Linear(1,768)
-        self.dep_linear1=nn.Linear(768,768)
-        self.dep_linear2=nn.Linear(768,768)
-        self.dep_att_linear=nn.Linear(768*2,1)
+        #self.senti_value_linear=nn.Linear(1,768)
+        #self.dep_linear1=nn.Linear(768,768)
+        #self.dep_linear2=nn.Linear(768,768)
+        #self.dep_att_linear=nn.Linear(768*2,1)
 
         self.RDGNN = RDGNN(args, 1.8)
+        self.aesc_enabled = args.aesc_enabled
+        if self.aesc_enabled == False:
+            self.classifier = nn.Linear(768, 3)
 
     def get_noun_embed(self,feature,noun_mask):
         # print(feature.shape,noun_mask.shape)
@@ -175,7 +178,8 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
                       sentiment_value=None,
                       pos_ids=None,
                       raw_token_ids=None,
-                      first=None):
+                      first=None,
+                      aspect_mask=None):
         dict = self.encoder(input_ids=input_ids,
                             image_features=image_features,
                             attention_mask=attention_mask,
@@ -199,6 +203,13 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         #    mix_feature = self.multimodal_GCN(encoder_outputs, dependency_matrix, attention_mask,noun_mask)
         mix_feature = self.RDGNN(encoder_outputs, syn_dep_adj_matrix, syn_dis_adj_matrix, True)
 
+        if self.aesc_enabled == False:
+            asp_wn = aspect_mask.sum(dim=1).unsqueeze(-1)      
+            mask = aspect_mask.unsqueeze(-1).repeat(1,1,768)    
+            #print(asp_wn.shape, mask.shape, aspect_mask.shape)
+            outputs = (mix_feature*mask).sum(dim=1) / asp_wn 
+            return outputs
+        
         state = BartState(
             encoder_outputs,
             encoder_mask,
@@ -322,12 +333,25 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             syn_dep_adj_matrix=None,
             syn_dis_adj_matrix=None,
             aesc_infos=None,
+            aspect_mask=None,
             encoder_outputs: Optional[Tuple] = None,
             use_cache=None,
             output_attentions=None,
             output_hidden_states=None,
     ):
+        if self.aesc_enabled == False:
+            logits = self.prepare_state(input_ids=input_ids,
+                      image_features=image_features,
+                      noun_mask=noun_mask,
+                      attention_mask=attention_mask,
+                      syn_dep_adj_matrix=syn_dep_adj_matrix,
+                      syn_dis_adj_matrix=syn_dis_adj_matrix,
+                      sentiment_value=sentiment_value,
+                      aspect_mask=aspect_mask)
+            return self.classifier(logits)
+        
         state = self.prepare_state(input_ids, image_features, noun_mask, attention_mask,syn_dep_adj_matrix, syn_dis_adj_matrix,sentiment_value)
+        
         spans, span_mask = [
             aesc_infos['labels'].to(input_ids.device),
             aesc_infos['masks'].to(input_ids.device)
@@ -420,30 +444,3 @@ class Attention(nn.Module) :
         new_size = context.size()[ : -2] + (self.all_head_size , )
         context = context.view(*new_size)
         return context
-
-
-from spacy.lang.en.tag_map import TAG_MAP
-import spacy
-
-from transformers.modeling_bert import BertSelfAttention,BertConfig
-'''
-词性特征表示
-'''
-class POS_embedding(nn.Module):
-    def __init__(self,pos_embedding_size=32,pos_att_head=1):
-        super(POS_embedding, self).__init__()
-        self.tag_map = {tag: i for i, tag in enumerate(TAG_MAP.keys(), 1)}  # Convert to tag -> id
-        self.tag_map["<pad>"] = 0
-        self.embeddings = nn.Embedding(len(self.tag_map), pos_embedding_size)
-        pos_attention_config = BertConfig(hidden_size=pos_embedding_size, num_attention_heads=pos_att_head)
-        self.pos_attention = BertSelfAttention(pos_attention_config)
-
-
-    def forward(self,pos_ids):
-        attention_mask = torch.ones_like(pos_ids)
-        extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
-        extended_attention_mask = extended_attention_mask.to(dtype=next(self.parameters()).dtype)
-        extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
-        pos_output = self.embeddings(pos_ids)
-        pos_output = self.pos_attention(pos_output, extended_attention_mask)[0]
-        return pos_output

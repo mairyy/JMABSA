@@ -1,6 +1,8 @@
 15_aesc
+17_aesc
 AoM-ckpt
 train15
+train17
 TRC_ckpt
 **/data/IJCAI2019_data
 **/data/jsons
@@ -11,3 +13,5 @@ TRC_ckpt
 **/__pycache__/
 **/.DS_Store
 **/checkpoint
+kaggle/
+kaggle.zip

@@ -136,16 +136,19 @@ class MultiModalBartEncoder(nn.Module):
 
     def _embed_multi_modal(self, input_ids, image_features):
         """embed textual and visual inputs and combine them into one embedding"""
-        mask = (input_ids == self.img_feat_id) | (
-            input_ids == self.cls_token_id)
-        embedded_images = self.embed_images(image_features)
-        embedded = self.embed_tokens(input_ids)
-        if not embedded_images[0].dtype == torch.float32:
-            embedded = embedded.half()
-        for index, value in enumerate(embedded_images):
-            if len(value) > 0:
-                embedded[index, mask[index]] = value
-        return embedded
+        if image_features != None:
+            mask = (input_ids == self.img_feat_id) | (
+                input_ids == self.cls_token_id)
+            embedded_images = self.embed_images(image_features)
+            embedded = self.embed_tokens(input_ids)
+            if not embedded_images[0].dtype == torch.float32:
+                embedded = embedded.half()
+            for index, value in enumerate(embedded_images):
+                if len(value) > 0:
+                    embedded[index, mask[index]] = value
+            return embedded
+        else:
+            return self.embed_tokens(input_ids)
 
     def forward(self,
                 input_ids,

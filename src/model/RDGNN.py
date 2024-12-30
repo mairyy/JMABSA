@@ -49,8 +49,9 @@ class RDGNN(nn.Module):
         overall_max_len = encoder_outputs.shape[1]
         #print(syn_dep_adj.shape, syn_dis_adj.shape)
         bart_output = self.layernorm(encoder_outputs)
-        image_feats = bart_output[:, :51, :]
-        text_feats = bart_output[:, 51:, :]
+        #image_feats = bart_output[:, :51, :]
+        #text_feats = bart_output[:, 51:, :]
+        text_feats = bart_output
         syn_dep_adj_ = self.dep_imp_function(self.dep_embedding.weight, syn_dep_adj, overall_max_len, self.batch_size)
         dep_adj = syn_dep_adj_.float()
 
@@ -68,7 +69,7 @@ class RDGNN(nn.Module):
             gnn_output = F.relu(gnn_output)
             gnn_output = self.gnn_drop(gnn_output)
         output = F.relu(self.transition(gnn_output))
-        output = torch.cat([image_feats, output], dim=1)
+        #output = torch.cat([image_feats, output], dim=1)
         #print(output.shape)
         return output
     

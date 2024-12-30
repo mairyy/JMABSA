@@ -9,12 +9,12 @@ do
           --num_beams 4 \
           --eval_every 1 \
           --lr ${sl} \
-          --batch_size 8  \
+          --batch_size 4  \
           --epochs 35 \
           --grad_clip 5 \
           --warmup 0.1 \
           --seed 57 \
-          --checkpoint ./checkpoint/pytorch_model.bin \
+          --checkpoint /Users/admin/Documents/Projects/JMABSA/train15/2024-12-27-09-43-12 \
           --rank 2 \
           --trc_pretrain_file TRC_ckpt/pytorch_model.bin \
           --nn_attention_on \
