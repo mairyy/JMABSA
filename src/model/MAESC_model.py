@@ -24,7 +24,7 @@ from src.model.GAT import GAT
 import numpy as np
 import os
 
-from src.model.RDGNN import RDGNN
+from src.model.RDGNN import RDGNN, Sim_GCN
 
 class MultiModalBartModel_AESC(PretrainedBartModel):
     def build_model(self,
@@ -142,6 +142,7 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         #self.dep_att_linear=nn.Linear(768*2,1)
 
         self.RDGNN = RDGNN(args, 1.8)
+        self.Sim_GCN = Sim_GCN(args, 768, 768)
         self.aesc_enabled = args.aesc_enabled
         if self.aesc_enabled == False:
             self.classifier = nn.Linear(768, 3)
@@ -201,7 +202,10 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         #    mix_feature = self.multimodal_GCN(encoder_outputs, dependency_matrix, attention_mask,noun_mask,sentiment_value)
         #elif self.gcn_on:
         #    mix_feature = self.multimodal_GCN(encoder_outputs, dependency_matrix, attention_mask,noun_mask)
-        mix_feature = self.RDGNN(encoder_outputs, syn_dep_adj_matrix, syn_dis_adj_matrix, True)
+        syn_feature = self.RDGNN(encoder_outputs, syn_dep_adj_matrix, syn_dis_adj_matrix, True)
+        sim_feature = self.Sim_GCN(encoder_outputs, attention_mask)
+
+        mix_feature = syn_feature + sim_feature
 
         if self.aesc_enabled == False:
             asp_wn = aspect_mask.sum(dim=1).unsqueeze(-1)      

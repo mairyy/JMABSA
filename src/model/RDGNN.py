@@ -104,3 +104,35 @@ class DEP_IMP(nn.Module):
         att_adj = torch.gather(att_adj, 2, syn_dep_adj)
         att_adj[syn_dep_adj == 0.] = 0.
         return att_adj
+    
+class Sim_GCN(nn.Module):
+    def __init__(self, args, input_dim, output_dim):
+        super(Sim_GCN, self).__init__()
+        self.gcn_input_dim = input_dim
+        self.gcn_output_dim = output_dim
+        self.gcn_hidden_dim = output_dim
+        self.gcn_layer_num = args.gcn_layer_num
+
+        self.W = nn.ModuleList()
+        for layer_id in range(self.gcn_layer_num):
+            input_dim = self.gcn_input_dim if layer_id==0 else self.gcn_hidden_dim
+            self.W.append(nn.Linear(input_dim, self.gcn_hidden_dim, True))
+
+        self.gcn_drop = nn.Dropout(args.gcn_dropout)
+        self.linear = nn.Linear(self.gcn_hidden_dim, self.gcn_output_dim)
+
+    def forward(self, input_emb, attention_mask):
+        embeddings_norm = F.normalize(input_emb, p=2, dim=-1)
+        adj_matrix = torch.matmul(embeddings_norm, embeddings_norm.transpose(1, 2))
+        #print(adj_matrix, adj_matrix.shape, input_emb.shape)
+        expanded_mask = attention_mask.unsqueeze(-1)
+        adj_matrix = adj_matrix * expanded_mask * expanded_mask.transpose(1, 2)
+
+        gcn_output = input_emb
+        for layer_id in range(self.gcn_layer_num):
+            gcn_output = self.W[layer_id](torch.matmul(adj_matrix, gcn_output))
+            gcn_output = F.relu(gcn_output)
+            gcn_output = self.gcn_drop(gcn_output)
+
+        gcn_output = F.relu(self.linear(gcn_output))
+        return gcn_output
