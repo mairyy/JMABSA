@@ -9,6 +9,7 @@ from PIL import Image
 from transformers import AutoTokenizer
 from torchvision import transforms
 import pdb
+import pickle
 
 class Twitter_Dataset(data.Dataset):
     def __init__(self, args, img_path,infos, split):
@@ -18,12 +19,15 @@ class Twitter_Dataset(data.Dataset):
         if split == 'train':
             self.data_set = json.load(
                 open(self.infos['data_dir'] + '/train_preprocessed.json', 'r'))
+            #self.img_path = self.infos['data_dir'] + '/train_img_feats.pkl'
         elif split == 'dev':
             self.data_set = json.load(
                 open(self.infos['data_dir'] + '/dev_preprocessed.json', 'r'))
+            #self.img_path = self.infos['data_dir'] + '/dev_img_feats.pkl'
         elif split == 'test':
             self.data_set = json.load(
                 open(self.infos['data_dir'] + '/test_preprocessed.json', 'r'))
+            #self.img_path = self.infos['data_dir'] + '/test_img_feats.pkl'
         else:
             raise RuntimeError("split type is not exist!!!")
         
@@ -68,6 +72,10 @@ class Twitter_Dataset(data.Dataset):
             image = self.transform(image)
         return image
 
+    #def get_img_feature(self, id):
+    #    with open(self.img_path, 'rb') as outfile:
+    #        img_features = pickle.load(outfile)
+    #    return img_features.get(id)
 
     def get_aesc_spans(self, dic):
         aesc_spans = []

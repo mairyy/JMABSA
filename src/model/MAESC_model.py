@@ -23,6 +23,7 @@ import copy
 from src.model.GAT import GAT
 import numpy as np
 import os
+from torchcrf import CRF
 
 from src.model.RDGNN import RDGNN, Sim_GCN
 
@@ -80,6 +81,7 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
                                                    tokenizer.cls_token_id)
         #multimodal_encoder = encoder
         return (multimodal_encoder, decoder)
+        #return (encoder, decoder)
 
 
     def __init__(self, config: MultiModalBartConfig, args, bart_model,
@@ -144,9 +146,15 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         self.RDGNN = RDGNN(args, 1.8)
         self.Sim_GCN = Sim_GCN(args, 768, 768)
         self.aesc_enabled = args.aesc_enabled
+        self.num_labels = len(args.label_dict)
+        self.crf_on = args.crf_on
         if self.aesc_enabled == False:
-            self.classifier = nn.Linear(768, 3)
-
+            if self.crf_on:
+                self.projection = nn.Linear(768, self.num_labels)
+                self.crf = CRF(num_tags=self.num_labels, batch_first=True)
+            else:
+                self.classifier = nn.Linear(768, 3)
+        
     def get_noun_embed(self,feature,noun_mask):
         # print(feature.shape,noun_mask.shape)
         noun_mask = noun_mask.cpu()
@@ -160,8 +168,8 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         for i,x in enumerate(noun_position):
             if len(x)<max_noun_num:
                 noun_position[i]+=[0]*(max_noun_num-len(x))
-        noun_position=torch.tensor(noun_position).to('mps')
-        noun_embed=torch.zeros(feature.shape[0],max_noun_num,feature.shape[-1]).to('mps')
+        noun_position=torch.tensor(noun_position).to('cuda')
+        noun_embed=torch.zeros(feature.shape[0],max_noun_num,feature.shape[-1]).to('cuda')
         for i in range(len(feature)):
             noun_embed[i]=torch.index_select(feature[i],dim=0,index=noun_position[i])
             noun_embed[i,noun_num[i]:]=torch.zeros(max_noun_num-noun_num[i],feature.shape[-1])
@@ -180,7 +188,8 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
                       pos_ids=None,
                       raw_token_ids=None,
                       first=None,
-                      aspect_mask=None):
+                      aspect_mask=None,
+                      labels=None):
         dict = self.encoder(input_ids=input_ids,
                             image_features=image_features,
                             attention_mask=attention_mask,
@@ -193,8 +202,8 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
 
         #if self.nn_attention_on:
             # 获取名词的embedding
-        #    noun_embed=self.get_noun_embed(encoder_outputs,noun_mask)
-        #    encoder_outputs=self.noun_attention(encoder_outputs,noun_embed,mode=self.nn_attention_mode)
+        #noun_embed=self.get_noun_embed(encoder_outputs,noun_mask)
+        #noun_feature=self.noun_attention(encoder_outputs,noun_embed,mode=self.nn_attention_mode)
 
         # gcn
         #senti_feature, context_feature,mix_feature=None,None,None
@@ -203,21 +212,32 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         #elif self.gcn_on:
         #    mix_feature = self.multimodal_GCN(encoder_outputs, dependency_matrix, attention_mask,noun_mask)
         syn_feature = self.RDGNN(encoder_outputs, syn_dep_adj_matrix, syn_dis_adj_matrix, True)
-        sim_feature = self.Sim_GCN(encoder_outputs, attention_mask)
+        sim_feature = self.Sim_GCN(encoder_outputs, encoder_outputs, attention_mask)
+
+        #embeddings_norm = F.normalize(encoder_outputs, p=2, dim=-1)
+        #adj_matrix = torch.matmul(embeddings_norm, embeddings_norm.transpose(1, 2))
+        #expanded_mask = attention_mask.unsqueeze(-1)
+        #adj_matrix = adj_matrix * expanded_mask * expanded_mask.transpose(1, 2)
+        #sim_feature = self.Sim_GCN(noun_feature, encoder_outputs, attention_mask)
 
         mix_feature = syn_feature + sim_feature
 
         if self.aesc_enabled == False:
-            asp_wn = aspect_mask.sum(dim=1).unsqueeze(-1)      
-            mask = aspect_mask.unsqueeze(-1).repeat(1,1,768)    
-            #print(asp_wn.shape, mask.shape, aspect_mask.shape)
-            outputs = (mix_feature*mask).sum(dim=1) / asp_wn 
-            return outputs
+            if self.crf_on:
+                emissions = self.projection(mix_feature)
+                return emissions
+            else:
+                asp_wn = aspect_mask.sum(dim=1).unsqueeze(-1)      
+                mask = aspect_mask.unsqueeze(-1).repeat(1,1,768)    
+                #print(asp_wn.shape, mask.shape, aspect_mask.shape)
+                outputs = (mix_feature*mask).sum(dim=1) / asp_wn 
+                return outputs
         
         state = BartState(
             encoder_outputs,
             encoder_mask,
-            input_ids[:,51:],  #the text features start from index 38, the front are image features.
+            #input_ids[:,51:],  #the text features start from index 38, the front are image features.
+            input_ids,
             first,
             src_embed_outputs,
             mix_feature
@@ -338,6 +358,7 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             syn_dis_adj_matrix=None,
             aesc_infos=None,
             aspect_mask=None,
+            labels=None,
             encoder_outputs: Optional[Tuple] = None,
             use_cache=None,
             output_attentions=None,
@@ -351,10 +372,24 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
                       syn_dep_adj_matrix=syn_dep_adj_matrix,
                       syn_dis_adj_matrix=syn_dis_adj_matrix,
                       sentiment_value=sentiment_value,
-                      aspect_mask=aspect_mask)
+                      aspect_mask=aspect_mask,
+                      labels=labels)
+            if self.crf_on:
+                if labels != None:
+                    log_likelihood = self.crf(logits, labels, mask=attention_mask.byte(), reduction='sum')
+                    return -log_likelihood
+                else:
+                    return self.crf.decode(logits, mask=attention_mask.byte())
             return self.classifier(logits)
         
-        state = self.prepare_state(input_ids, image_features, noun_mask, attention_mask,syn_dep_adj_matrix, syn_dis_adj_matrix,sentiment_value)
+        state = self.prepare_state(input_ids=input_ids,
+                      image_features=image_features,
+                      noun_mask=noun_mask,
+                      attention_mask=attention_mask,
+                      syn_dep_adj_matrix=syn_dep_adj_matrix,
+                      syn_dis_adj_matrix=syn_dis_adj_matrix,
+                      sentiment_value=sentiment_value,
+                      aspect_mask=aspect_mask)
         
         spans, span_mask = [
             aesc_infos['labels'].to(input_ids.device),

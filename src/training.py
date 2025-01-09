@@ -58,13 +58,13 @@ def fine_tune(epochs,
             #    imgs_f=[x.numpy().tolist() for x in batch['image_features']]
             #    imgs_f=torch.tensor(imgs_f).to(device)
             #    imgs_f, img_mean, img_att = img_encoder(imgs_f)
-            #    img_att=img_att.view(-1, 2048, 49).permute(0, 2, 1)
+            #    img_att=img_att.view(-1, 2048, args.img_num).permute(0, 2, 1)
             with autocast(enabled=args.amp):
                 if args.aesc_enabled:
                     loss = model.forward(
                         input_ids=batch['input_ids'].to(device),
-                        image_features=list(map(lambda x: x.to(device), img_att)),
-                        #image_features=None,
+                        #image_features=list(map(lambda x: x.to(device), img_att)),
+                        image_features=None,
                         sentiment_value=batch['sentiment_value'].to(device) if batch['sentiment_value'] is not None else None,
                         noun_mask=batch['noun_mask'].to(device),
                         attention_mask=batch['attention_mask'].to(device),
@@ -82,8 +82,12 @@ def fine_tune(epochs,
                         syn_dep_adj_matrix=batch['syn_dep_matrix'].to(device),
                         syn_dis_adj_matrix=batch['syn_dis_matrix'].to(device),
                         aesc_infos=aesc_infos,
-                        aspect_mask=batch['aspect_mask'].to(device))
-                    loss = criterion(outputs, aesc_infos.to(device))
+                        aspect_mask=batch['aspect_mask'].to(device),
+                        labels=aesc_infos.to(device))
+                    if args.crf_on:
+                        loss = outputs.sum()
+                    else:
+                        loss = criterion(outputs, aesc_infos.to(device))
 
                 print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}'.format(
                     epoch + 1, args.epochs, epoch*len(train_loader) + i + 1, total_step, loss.item()))
@@ -101,7 +105,7 @@ def fine_tune(epochs,
 
             optimizer.step()
 
-        if args.aesc_enabled:
+        if args.aesc_enabled or args.crf_on:
             res_dev = eval_utils.eval(args, model,img_encoder ,dev_loader, metric, device)
             logger.info('DEV  aesc_p:{} aesc_r:{} aesc_f:{}'.format(
                 res_dev['aesc_pre'], res_dev['aesc_rec'], res_dev['aesc_f']))
@@ -115,7 +119,10 @@ def fine_tune(epochs,
                     best_dev_res = res_dev
                     save_flag = True
 
-            model.seq2seq_model.RDGNN.reward_and_punishment(res_dev['aesc_f'])
+            if args.crf_on:
+                model.RDGNN.reward_and_punishment(res_dev['aesc_f'])
+            else:
+                model.seq2seq_model.RDGNN.reward_and_punishment(res_dev['aesc_f'])
         else:
             res_dev = eval_utils.eval(args, model,img_encoder ,dev_loader, metric, device)
             logger.info('DEV  sc_acc:{} sc_f:{}'.format(res_dev['sc_acc'], res_dev['sc_f']))
@@ -159,18 +166,26 @@ def fine_tune(epochs,
         logger.info('BEST DEV  sc_acc:{} sc_r:{} sc_f:{}'.format(
             best_dev_res['sc_acc'], best_dev_res['sc_rec'],
             best_dev_res['sc_f']))
-        #logger.info('BEST TEST  aesc_p:{} aesc_r:{} aesc_f:{}'.format(
-        #    res_test['aesc_pre'], res_test['aesc_rec'],
-        #    res_test['aesc_f']))
-        #logger.info('BEST TEST  ae_p:{} ae_r:{} ae_f:{}'.format(
-        #    res_test['ae_pre'], res_test['ae_rec'],
-        #    res_test['ae_f']))
-        #logger.info('BEST TEST  sc_acc:{} sc_r:{} sc_f:{}'.format(
-        #    res_test['sc_acc'], res_test['sc_rec'],
-        #    res_test['sc_f']))    
+        logger.info('BEST TEST  aesc_p:{} aesc_r:{} aesc_f:{}'.format(
+            res_test['aesc_pre'], res_test['aesc_rec'],
+            res_test['aesc_f']))
+        logger.info('BEST TEST  ae_p:{} ae_r:{} ae_f:{}'.format(
+            res_test['ae_pre'], res_test['ae_rec'],
+            res_test['ae_f']))
+        logger.info('BEST TEST  sc_acc:{} sc_r:{} sc_f:{}'.format(
+            res_test['sc_acc'], res_test['sc_rec'],
+            res_test['sc_f']))    
     else:
-        logger.info('BEST DEV  sc_acc:{} sc_f:{}'.format( best_dev_res['sc_acc'], best_dev_res['sc_f']))
-        logger.info('TEST  sc_acc:{} sc_f:{}'.format(res_test['sc_acc'], res_test['sc_f']))
+        if args.crf_on:
+            logger.info('BEST DEV  aesc_p:{} aesc_r:{} aesc_f:{}'.format(
+                best_dev_res['aesc_pre'], best_dev_res['aesc_rec'],
+                best_dev_res['aesc_f']))
+            logger.info('BEST TEST  aesc_p:{} aesc_r:{} aesc_f:{}'.format(
+                res_test['aesc_pre'], res_test['aesc_rec'],
+                res_test['aesc_f']))
+        else:
+            logger.info('BEST DEV  sc_acc:{} sc_f:{}'.format( best_dev_res['sc_acc'], best_dev_res['sc_f']))
+            logger.info('TEST  sc_acc:{} sc_f:{}'.format(res_test['sc_acc'], res_test['sc_f']))
     
 
 
@@ -205,8 +220,9 @@ def trc_pretrain(epochs,
             with torch.no_grad():
                 imgs_f=[x.numpy().tolist() for x in batch['image_features']]
                 imgs_f=torch.tensor(imgs_f).to(device)
-                imgs_f, img_mean, img_att = img_encoder(imgs_f)
-                img_att=img_att.view(-1, 2048, 49).permute(0, 2, 1)
+                imgs_f, img_mean, img_att = img_encoder(imgs_f, 7)
+                img_att=img_att.view(-1, 2048, args.img_num).permute(0, 2, 1)
+                #img_att = img_att[:, :args.img_num,:]
             with autocast(enabled=args.amp):
                 logits = model.forward(
                     input_ids=batch['input_ids'].to(device),

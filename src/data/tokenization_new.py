@@ -198,14 +198,14 @@ class ConditionTokenizer:
             # assert key_id[0] >= self.cur_num_tokens
             self.mapping2id[key] = key_id[0]
             self.mapping2targetid[key] = len(self.mapping2targetid) + 2
-        print(self.mapping2id)
+        print(self.mapping2id, 'cls:', self.cls_token_id, 'img:', self.img_feat_id)
 
         self.root_id = args.vocab_dep.get('ROOT')
 
     def encode(self, *args, **kwargs):
         return self._base_tokenizer(*args, **kwargs)
 
-    def pad_tokens(self, tokens, noun_masks=None, syn_dep_adj_matrix=None, syn_dis_adj_matrix=None, aspect_masks=None):
+    def pad_tokens(self, tokens, noun_masks=None, syn_dep_adj_matrix=None, syn_dis_adj_matrix=None, aspect_masks=None, labels=None):
         #print(syn_dis_adj_matrix, syn_dep_adj_matrix)
         #print(aspect_masks)
         max_len = max([len(x) for x in tokens])
@@ -237,6 +237,11 @@ class ConditionTokenizer:
             aspect_mask = torch.zeros((len(tokens), max_len), dtype=torch.long)
             for i, x in enumerate(tokens):
                 aspect_mask[i, :len(x)] = torch.tensor(aspect_masks[i], dtype=torch.long)
+        
+        if labels is not None:
+            label = torch.zeros((len(tokens), max_len), dtype=torch.long)
+            for i, x in enumerate(tokens):
+                label[i, :len(x)] = torch.tensor(labels[i], dtype=torch.long)
 
         if noun_masks is None:
             noun_mask = None
@@ -246,10 +251,12 @@ class ConditionTokenizer:
             ret_dis_matrix = None
         if aspect_masks is None:
             aspect_mask = None
+        if labels is None:
+            label = None
         #print(ret_dep_matrix, ret_dis_matrix)
-        return pad_result, mask, noun_mask, ret_dep_matrix, ret_dis_matrix, aspect_mask
+        return pad_result, mask, noun_mask, ret_dep_matrix, ret_dis_matrix, aspect_mask, label
 
-    def encode_condition(self, img_num=None, sentence=None, text_only=False, syn_dis_adj=None, syn_dep_adj=None, aspects=None):
+    def encode_condition(self, img_num=None, sentence=None, text_only=False, syn_dis_adj=None, syn_dep_adj=None, aspects=None, polarity=None):
         """
         tokenize text, image features and event
         the output format (after decoded back):
@@ -309,10 +316,14 @@ class ConditionTokenizer:
             token_index = [np.arange(0, len(x)) for x in sentence_split]
             sentiments = []
             aspect_masks = []
+            labels = []
+            label_dict = {'O': 0, 'POS': 1, 'NEU': 2, 'NEG': 3, 'I': 4}
             for i, split in enumerate(sentence_split):
                 if aspects != None:
                     aspect = aspects[i]
+                    len_term = len(aspect)
                     aspect_mask = [0]
+                    label = [0]
                 noun_mask = [0]
                 word_bpes = [self.bos_token_id]
 
@@ -339,8 +350,15 @@ class ConditionTokenizer:
                     if aspects != None:
                         if word in aspect:
                             aspect_mask += [1] * len(bpes)
+                            len_term -= 1
+                            if len_term == 0:
+                                label += [label_dict.get(polarity[i])] 
+                                label += [4] * (len(bpes) - 1)
+                            else:
+                                label += [label_dict.get(polarity[i])] * len(bpes)
                         else:
                             aspect_mask += [0] * len(bpes)
+                            label += [0] * len(bpes)
 
                     word_bpes.extend(bpes)
                 word_bpes.append(self.eos_token_id)
@@ -358,8 +376,11 @@ class ConditionTokenizer:
                 if aspects != None:
                     aspect_mask += [0]
                     aspect_masks.append(aspect_mask)
+                    label += [0]
+                    labels.append(label)
                 else:
                     aspect_masks = None
+                    labels = None
                 # _word_bpes = list(chain(*word_bpes))
                 # input_sentence_tokens.append(_word_bpes.copy())
                 input_sentence_tokens.append(word_bpes)
@@ -386,8 +407,8 @@ class ConditionTokenizer:
 
             #input_sentence_tokens, input_sentence_mask, noun_mask, dependency_matrix = self.pad_tokens(
             #    input_sentence_tokens, noun_masks, dependency_matrix)
-            input_sentence_tokens, input_sentence_mask, noun_mask, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks = self.pad_tokens(
-                input_sentence_tokens, noun_masks, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks)
+            input_sentence_tokens, input_sentence_mask, noun_mask, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks, labels = self.pad_tokens(
+                input_sentence_tokens, noun_masks, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks, labels)
 
             # 填充情感值
             if self.sentinet_on:
@@ -404,14 +425,15 @@ class ConditionTokenizer:
             noun_mask = torch.cat((torch.zeros(image_ids.size(), dtype=torch.bool), noun_mask), 1)
             if aspects != None:
                 aspect_masks = torch.cat((torch.zeros(image_ids.size(), dtype=torch.bool), aspect_masks), 1)
+                labels = torch.cat((torch.zeros(image_ids.size(), dtype=torch.bool), labels), 1)
             #print(input_ids.shape, aspect_mask.shape)
             # assert attention_mask.shape==noun_mask.shape
         else:
             #input_sentence_tokens, input_sentence_mask, noun_mask, dependency_matrix = self.pad_tokens(
             #    input_sentence_tokens, noun_masks, dependency_matrix)
             
-            input_sentence_tokens, input_sentence_mask, noun_mask, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks = self.pad_tokens(
-                input_sentence_tokens, noun_masks, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks)
+            input_sentence_tokens, input_sentence_mask, noun_mask, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks, labels = self.pad_tokens(
+                input_sentence_tokens, noun_masks, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks, labels)
             
             input_ids = input_sentence_tokens
             attention_mask = input_sentence_mask
@@ -419,6 +441,7 @@ class ConditionTokenizer:
         encoded['input_ids'] = input_ids
         if aspects != None:
             encoded['aspect_mask'] = aspect_masks
+            encoded['labels'] = labels
 
         encoded['attention_mask'] = attention_mask
         encoded['noun_mask'] = noun_mask

@@ -9,16 +9,20 @@ do
           --num_beams 4 \
           --eval_every 1 \
           --lr ${sl} \
-          --batch_size 4  \
+          --train_batch_size 16  \
+          --dev_batch_size 16  \
+          --test_batch_size 16  \
           --epochs 35 \
           --grad_clip 5 \
           --warmup 0.1 \
           --seed 57 \
-          --checkpoint /Users/admin/Documents/Projects/JMABSA/train15/2024-12-27-09-43-12 \
           --rank 2 \
           --trc_pretrain_file TRC_ckpt/pytorch_model.bin \
           --nn_attention_on \
           --nn_attention_mode 0\
           --gcn_on \
-          --dep_mode 2
+          --dep_mode 2\
+          --gpu_num 2\
+          --gcn_layer_num 2\
+          --crf_on
 done

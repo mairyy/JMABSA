@@ -67,14 +67,16 @@ def main(rank, args):
     else:
         #device = torch.device("cuda:{}".format(rank))
         #map_location = {'cuda:%d' % 0: 'cuda:%d' % rank}
-        device = torch.device('mps')
+        device = torch.device('cuda')
         map_location = device
     args.device=device
     infos = json.load(open(args.dataset[0][1], 'r'))
     args.vocab_dep = pickle.load(open(infos['data_dir'] + '/vocab_dep.vocab', 'rb')).stoi
     args.dep_vocab_size = len(args.vocab_dep)
     tokenizer = ConditionTokenizer(args=args)
+    args.label_dict = {'O': 0, 'B-POS': 1, 'B-NEU': 2, 'B-NEG': 3, 'I': 4}
     label_ids = list(tokenizer.mapping2id.values())
+    logger.info('Number labels: {}'.format(len(label_ids)))
     senti_ids = list(tokenizer.senti2id.values())
 
     if args.model_config is not None:
@@ -124,6 +126,9 @@ def main(rank, args):
                                         pad_token_id=eos_token_id,
                                         restricter=None)
     
+    if torch.cuda.device_count() > 1:
+        model = nn.DataParallel(model)
+    
     model.to(device)
 
     optimizer = AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.999))
@@ -133,7 +138,9 @@ def main(rank, args):
     logger.info('Loading data...')
     collate_aesc = Collator(tokenizer,
                             aesc_enabled=args.aesc_enabled,
-                            text_only=args.text_only)
+                            text_only=args.text_only,
+                            max_img_num=args.img_num,
+                            crf_on=args.crf_on)
 
     train_dataset = Twitter_Dataset(args, args.img_path,args.dataset[0][1], split='train')
 
@@ -141,23 +148,23 @@ def main(rank, args):
     test_dataset = Twitter_Dataset(args, args.img_path,args.dataset[0][1], split='test')
 
     train_loader = DataLoader(dataset=train_dataset,
-                              batch_size=args.batch_size,
+                              batch_size=args.train_batch_size,
                               shuffle=True,
                               num_workers=args.num_workers,
                               pin_memory=True,
                               collate_fn=collate_aesc)
     dev_loader = DataLoader(dataset=dev_dataset,
-                            batch_size=args.batch_size,
+                            batch_size=args.dev_batch_size,
                             shuffle=False,
                             num_workers=args.num_workers,
                             pin_memory=True,
                             collate_fn=collate_aesc)
     test_loader = DataLoader(dataset=test_dataset,
-                            batch_size=args.batch_size,
-                            shuffle=False,
-                            num_workers=args.num_workers,
-                            pin_memory=True,
-                            collate_fn=collate_aesc)
+                             batch_size=args.test_batch_size,
+                             shuffle=False,
+                             num_workers=args.num_workers,
+                             pin_memory=True,
+                             collate_fn=collate_aesc)
 
     callback = None
     criterion = nn.CrossEntropyLoss()
@@ -171,7 +178,7 @@ def main(rank, args):
         if args.dataset[0][0] == 'twitter15':
             model=torch.load(os.path.join(args.checkpoint, 'AoM.pt'), map_location=map_location)
         else:
-            model=torch.load(os.path.join(args.checkpoint, 'AoM.pt'), map_location=map_location)
+            model=torch.load('AoM-ckpt/Twitter2017/AoM.pt', map_location=map_location)
 
         res_test = eval_utils.eval(args, model, img_encoder, test_loader, metric, device)
         if args.aesc_enabled:
@@ -311,7 +318,15 @@ def parse_args():
                         type=str,
                         default='12355',
                         help='master port for DDP')
-    parser.add_argument('--batch_size',
+    parser.add_argument('--train_batch_size',
+                        type=int,
+                        default=16,
+                        help='training batch size')
+    parser.add_argument('--dev_batch_size',
+                        type=int,
+                        default=16,
+                        help='training batch size')
+    parser.add_argument('--test_batch_size',
                         type=int,
                         default=16,
                         help='training batch size')
@@ -345,7 +360,7 @@ def parse_args():
                         type=int,
                         help=' ')
     parser.add_argument('--no_train',
-                        default=True,
+                        default=False,
                         type=bool,
                         help=' ')
     parser.add_argument('--trc_pretrain_file',
@@ -383,7 +398,7 @@ def parse_args():
                         help=' ')
     parser.add_argument('--gcn_dropout',
                         type=float,
-                        default=0
+                        default=0.1
                         )
     parser.add_argument('--gcn_proportion',
                         type=float,
@@ -408,6 +423,12 @@ def parse_args():
     parser.add_argument('--RL_S', default=0.1, type=float, help='step to update K')
     parser.add_argument('--RL_R', default=10, type=int, help='get last RL_R of RL history to decide stopping or continueing RL')
     
+    #sim_gcn
+    parser.add_argument('--gcn_layer_num', default=2, type=int, help='gcn layer number')
+    parser.add_argument('--img_num', default=20, type=int, help='max img num')
+
+    parser.add_argument('--crf_on', action='store_true', help='aesc task using crf')
+
     args = parser.parse_args()
     if args.encoder=='trc':
         args.trc_on=True

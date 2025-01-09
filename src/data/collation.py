@@ -14,6 +14,7 @@ class Collator:
                  aesc_enabled=False,
                  text_only=False,
                  trc_enabled=False,
+                 crf_on=True,
                  lm_max_len=30,
                  max_img_num=49,
                  max_span_len=20):
@@ -34,6 +35,7 @@ class Collator:
         self._max_img_num = max_img_num
         self._max_span_len = max_span_len
         self.text_only = text_only
+        self.crf_on = crf_on
         if not has_label:
             raise ValueError(
                 'mlm_enabled can not be true while has_label is false. MLM need labels.'
@@ -54,9 +56,9 @@ class Collator:
 
     def __call__(self, batch):
         batch = [entry for entry in batch if entry is not None]
-        image_features =[x['img_feat'] for x in batch]
+        image_features = [x['img_feat'] for x in batch]
 
-        #img_num = [49]*len(image_features)
+        #img_num = [self._max_img_num]*len(image_features)
         img_num = None
 
         target = [x['sentence'] for x in batch]
@@ -65,11 +67,13 @@ class Collator:
         syn_dep_adj = [x['syn_dep_adj'] for x in batch]
         if self._aesc_enabled == False:
             aspects = [x['aspects'] for x in batch]
+            polarity = [x['polarity'] for x in batch]
         else:
             aspects = None
+            polarity = None
 
         encoded_conditions = self._tokenizer.encode_condition(
-            img_num=img_num, sentence=sentence, text_only=self.text_only, syn_dis_adj=syn_dis_adj, syn_dep_adj=syn_dep_adj, aspects=aspects)
+            img_num=img_num, sentence=sentence, text_only=self.text_only, syn_dis_adj=syn_dis_adj, syn_dep_adj=syn_dep_adj, aspects=aspects, polarity=polarity)
 
         input_ids = encoded_conditions['input_ids']
         output = {}
@@ -95,9 +99,14 @@ class Collator:
                     self._max_span_len)
                 output['task'] = 'AESC'
             else:
-                label_dict = {'POS': 0, 'NEU': 1, 'NEG': 2}
-                output['task'] = 'SC'
-                output['SC'] = torch.tensor([label_dict[x['polarity']] for x in batch])
+                if self.crf_on:
+                    label_dict = {'O': 0, 'B-POS': 1, 'B-NEU': 2, 'B-NEG': 3, 'I': 4}
+                    output['task'] = 'SC'
+                    output['SC'] = encoded_conditions['labels']
+                else:
+                    label_dict = {'POS': 0, 'NEU': 1, 'NEG': 2}
+                    output['task'] = 'SC'
+                    output['SC'] = torch.tensor([label_dict[x['polarity']] for x in batch])
             if self._trc_enabled:
                 output['ifpairs']=[x['ifpairs'] for x in batch]
 

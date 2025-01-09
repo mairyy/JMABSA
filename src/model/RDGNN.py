@@ -44,14 +44,19 @@ class RDGNN(nn.Module):
         self.last_acc = 0.0
         self.RL_stop_flag = False
 
-    def forward(self, encoder_outputs, syn_dep_adj, syn_dis_adj, search_flag):
+        self.gnn_proportion = args.gcn_proportion
+        self.img_num = args.img_num
+
+    def forward(self, encoder_outputs, syn_dep_adj, syn_dis_adj, search_flag, text_only=True):
         self.batch_size = encoder_outputs.shape[0]
         overall_max_len = encoder_outputs.shape[1]
         #print(syn_dep_adj.shape, syn_dis_adj.shape)
         bart_output = self.layernorm(encoder_outputs)
-        #image_feats = bart_output[:, :51, :]
-        #text_feats = bart_output[:, 51:, :]
-        text_feats = bart_output
+        if not text_only:
+            image_feats = bart_output[:, :self.img_num+2, :]
+            text_feats = bart_output[:, self.img_num+2:, :]
+        else:
+            text_feats = bart_output
         syn_dep_adj_ = self.dep_imp_function(self.dep_embedding.weight, syn_dep_adj, overall_max_len, self.batch_size)
         dep_adj = syn_dep_adj_.float()
 
@@ -69,7 +74,10 @@ class RDGNN(nn.Module):
             gnn_output = F.relu(gnn_output)
             gnn_output = self.gnn_drop(gnn_output)
         output = F.relu(self.transition(gnn_output))
-        #output = torch.cat([image_feats, output], dim=1)
+        if not text_only:
+            output = torch.cat([image_feats, output], dim=1)
+        #output = self.gnn_proportion * output + encoder_outputs
+        
         #print(output.shape)
         return output
     
@@ -121,14 +129,14 @@ class Sim_GCN(nn.Module):
         self.gcn_drop = nn.Dropout(args.gcn_dropout)
         self.linear = nn.Linear(self.gcn_hidden_dim, self.gcn_output_dim)
 
-    def forward(self, input_emb, attention_mask):
-        embeddings_norm = F.normalize(input_emb, p=2, dim=-1)
+    def forward(self, input_1, input_2, attention_mask):
+        embeddings_norm = F.normalize(input_2, p=2, dim=-1)
         adj_matrix = torch.matmul(embeddings_norm, embeddings_norm.transpose(1, 2))
         #print(adj_matrix, adj_matrix.shape, input_emb.shape)
         expanded_mask = attention_mask.unsqueeze(-1)
         adj_matrix = adj_matrix * expanded_mask * expanded_mask.transpose(1, 2)
 
-        gcn_output = input_emb
+        gcn_output = input_1
         for layer_id in range(self.gcn_layer_num):
             gcn_output = self.W[layer_id](torch.matmul(adj_matrix, gcn_output))
             gcn_output = F.relu(gcn_output)
