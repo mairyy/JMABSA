@@ -6,7 +6,7 @@ from sklearn import metrics
 def eval(args, model, img_encoder,loader, metric, device):
     model.eval()
 
-    if args.crf_on:
+    if args.crf_on or not args.sc_only:
         targets_all, outputs_all = [], []
     else:
         n_test_correct, n_test_total = 0, 0
@@ -64,10 +64,18 @@ def eval(args, model, img_encoder,loader, metric, device):
                 )
             targets = aesc_infos.to(device)
             if not args.crf_on:
-                n_test_correct += (torch.argmax(predict, -1) == targets).sum().item()
-                n_test_total += len(predict)
-                targets_all = torch.cat((targets_all, targets), dim=0) if targets_all is not None else targets
-                outputs_all = torch.cat((outputs_all, predict), dim=0) if outputs_all is not None else predict
+                if not args.sc_only:
+                    targets_all.append(targets)
+                    outputs_all.extend(predict)
+                    # predict = torch.argmax(predict, -1)
+                    # print(predict[0], targets[0])
+                    # targets_all.append(targets)
+                    # outputs_all.append(predict)
+                else:
+                    n_test_correct += (torch.argmax(predict, -1) == targets).sum().item()
+                    n_test_total += len(predict)
+                    targets_all = torch.cat((targets_all, targets), dim=0) if targets_all is not None else targets
+                    outputs_all = torch.cat((outputs_all, predict), dim=0) if outputs_all is not None else predict
             else:
                 targets_all.append(targets)
                 outputs_all.extend(predict)
@@ -77,7 +85,7 @@ def eval(args, model, img_encoder,loader, metric, device):
 
     if args.aesc_enabled == False:
         res = {}
-        if args.crf_on:
+        if args.crf_on or not args.sc_only:
             targets_all = pad_token(targets_all).flatten()
             outputs_all = pad_token(outputs_all).flatten()
             #print(targets_all, outputs_all, targets_all.shape, outputs_all.shape)

@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from transformers import BartTokenizer, AutoTokenizer
-from itertools import chain
+from itertools import chain, groupby
 from functools import cmp_to_key
 import spacy
 nlp = spacy.load("en_core_web_sm")
@@ -54,6 +54,27 @@ def dis_adj_expansion(syn_adj, max_len, weight, max_tree_dis):
     syn_adj_[:ins_len, :ins_len] = syn_adj
 
     return syn_adj_
+
+def list_matrix_pad(mat, pad_index, value=None):
+    assert len(mat) == len(mat[0]), "Matrix must be square."
+
+    # new_row = []
+
+    # for row in mat:
+    #     row.insert(pad_index + 1, row[pad_index])
+    
+    # mat.insert(pad_index + 1, mat[pad_index])
+
+    if value == None:
+        # if pad_index == len(mat):
+        #     pad_index -= 1
+        mat = np.insert(mat, pad_index + 1, mat[:, pad_index], axis=1)
+        mat = np.insert(mat, pad_index + 1, mat[pad_index, :], axis=0)
+    else:
+        mat = np.insert(mat, pad_index + 1, value, axis=1)
+        mat = np.insert(mat, pad_index + 1, value, axis=0)
+
+    return mat
 
 class ConditionTokenizer:
     """
@@ -256,7 +277,7 @@ class ConditionTokenizer:
         #print(ret_dep_matrix, ret_dis_matrix)
         return pad_result, mask, noun_mask, ret_dep_matrix, ret_dis_matrix, aspect_mask, label
 
-    def encode_condition(self, img_num=None, sentence=None, text_only=False, syn_dis_adj=None, syn_dep_adj=None, aspects=None, polarity=None):
+    def encode_condition(self, img_num=None, sentence=None, text_only=False, syn_dis_adj=None, syn_dep_adj=None, aspects=None, polarity=None, _labels=None):
         """
         tokenize text, image features and event
         the output format (after decoded back):
@@ -319,22 +340,49 @@ class ConditionTokenizer:
             labels = []
             label_dict = {'O': 0, 'POS': 1, 'NEU': 2, 'NEG': 3, 'I': 4}
             for i, split in enumerate(sentence_split):
+                pad_pad = 1
+                syn_dep_adj_mat = dep_adj_expansion(syn_dep_adj[i], len(split), self.root_id)
+                syn_dis_adj_mat = dis_adj_expansion(syn_dis_adj[i], len(split), 0, 10)
+
+                syn_dep_adj_mat = list_matrix_pad(syn_dep_adj_mat, -1, 0)
+                syn_dis_adj_mat = list_matrix_pad(syn_dis_adj_mat, -1, 0)
+
                 if aspects != None:
                     aspect = aspects[i]
                     len_term = len(aspect)
                     aspect_mask = [0]
                     label = [0]
+
+                if _labels != None:
+                    aspect = list(_labels[i].keys())
+                    polarity = list(_labels[i].values())
+                    label = [0]
+                    aspect_mask = [0]
+                    len_term = len(aspect)
+
                 noun_mask = [0]
                 word_bpes = [self.bos_token_id]
 
                 sentiment = [0]
+                words = []
                 for j, word in enumerate(split):
                     bpes = self._base_tokenizer.tokenize(word, add_prefix_space=True)
                     bpes = self._base_tokenizer.convert_tokens_to_ids(bpes)
+                    words.extend(bpes)
                     if j in noun_positions[i]:
                         noun_mask += [1] * len(bpes)
                     else:
                         noun_mask += [0] * len(bpes)
+
+                    if len(bpes) > 1:
+                        # print(i, word, syn_dep_adj_mat, pad_pad)
+                        for d_i in range(len(bpes) - 1):
+                            # print(d_i+pad_pad, syn_dep_adj_mat)
+                            if d_i + pad_pad >= len(bpes):
+                                break
+                            syn_dep_adj_mat = list_matrix_pad(syn_dep_adj_mat, d_i+pad_pad)
+                            syn_dis_adj_mat = list_matrix_pad(syn_dis_adj_mat, d_i+pad_pad)
+                            pad_pad += 1
 
                     if self.sentinet_on:
                         if word in self.senticNet:
@@ -360,6 +408,14 @@ class ConditionTokenizer:
                             aspect_mask += [0] * len(bpes)
                             label += [0] * len(bpes)
 
+                    if _labels != None:
+                        if word in aspect:
+                            aspect_mask += [1] * len(bpes)
+                            label += [label_dict.get(polarity[aspect.index(word)])] * len(bpes)
+                        else:
+                            aspect_mask += [0] * len(bpes)
+                            label += [0] * len(bpes)
+
                     word_bpes.extend(bpes)
                 word_bpes.append(self.eos_token_id)
                 if self.sentinet_on:
@@ -379,16 +435,43 @@ class ConditionTokenizer:
                     label += [0]
                     labels.append(label)
                 else:
-                    aspect_masks = None
-                    labels = None
+                    if _labels != None:
+                        aspect_mask += [0]
+                        aspect_masks.append(aspect_mask)
+                        label += [0]
+
+                        result = []
+                        for key, group in groupby(label):
+                            group_list = list(group)
+                            if key == 1 and len(group_list) > 1:
+                                result.extend([1])
+                                result.extend([4] * (len(group_list)-1))
+                            elif key == 2 and len(group_list) > 1:
+                                result.extend([2])
+                                result.extend([4] * (len(group_list)-1))
+                            elif key == 3 and len(group_list) > 1:
+                                result.extend([3])
+                                result.extend([4] * (len(group_list)-1))
+                            else:
+                                result.extend(group_list)
+                        label = result
+
+                        labels.append(label)
+                    else:
+                        aspect_masks = None
+                        labels = None
                 # _word_bpes = list(chain(*word_bpes))
                 # input_sentence_tokens.append(_word_bpes.copy())
                 input_sentence_tokens.append(word_bpes)
                 # assert len(word_bpes)==len(noun_mask)
                 noun_masks.append(noun_mask)
                 
-                syn_dep_adj_matrix.append(dep_adj_expansion(syn_dep_adj[i], len(split), self.root_id))
-                syn_dis_adj_matrix.append(dis_adj_expansion(syn_dis_adj[i], len(split), 0, 10))
+                syn_dep_adj_mat = list_matrix_pad(syn_dep_adj_mat, len(syn_dep_adj_mat)-1, 0)
+                syn_dis_adj_mat = list_matrix_pad(syn_dis_adj_mat, len(syn_dis_adj_mat)-1, 0)
+
+                syn_dep_adj_matrix.append(syn_dep_adj_mat)
+                syn_dis_adj_matrix.append(syn_dis_adj_mat)
+                # print(word_bpes, len(word_bpes), syn_dep_adj_matrix[0], syn_dis_adj_matrix[0], split, words, len(syn_dep_adj_matrix[0]))
             # assert len(input_sentence_tokens)==len(noun_masks)
                 #print(len(input_sentence_tokens), syn_dis_adj_matrix[-1], syn_dep_adj_matrix[-1])
 
@@ -439,7 +522,7 @@ class ConditionTokenizer:
             attention_mask = input_sentence_mask
             #print(input_ids.shape, dependency_matrix.shape)
         encoded['input_ids'] = input_ids
-        if aspects != None:
+        if aspects != None or _labels != None:
             encoded['aspect_mask'] = aspect_masks
             encoded['labels'] = labels
 

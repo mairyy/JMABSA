@@ -66,14 +66,20 @@ class Collator:
         syn_dis_adj = [x['syn_dis_adj'] for x in batch]
         syn_dep_adj = [x['syn_dep_adj'] for x in batch]
         if self._aesc_enabled == False:
-            aspects = [x['aspects'] for x in batch]
-            polarity = [x['polarity'] for x in batch]
+            #if self.crf_on:
+            #    aspects = [x['aspects'] for x in batch]
+            #    polarity = [x['polarity'] for x in batch]
+            #else:
+            labels = [x['labels'] for x in batch]
         else:
             aspects = None
             polarity = None
+            labels = None
 
+        #encoded_conditions = self._tokenizer.encode_condition(
+        #    img_num=img_num, sentence=sentence, text_only=self.text_only, syn_dis_adj=syn_dis_adj, syn_dep_adj=syn_dep_adj, aspects=aspects, polarity=polarity)
         encoded_conditions = self._tokenizer.encode_condition(
-            img_num=img_num, sentence=sentence, text_only=self.text_only, syn_dis_adj=syn_dis_adj, syn_dep_adj=syn_dep_adj, aspects=aspects, polarity=polarity)
+            img_num=img_num, sentence=sentence, text_only=self.text_only, syn_dis_adj=syn_dis_adj, syn_dep_adj=syn_dep_adj, _labels=labels)
 
         input_ids = encoded_conditions['input_ids']
         output = {}
@@ -104,9 +110,13 @@ class Collator:
                     output['task'] = 'SC'
                     output['SC'] = encoded_conditions['labels']
                 else:
-                    label_dict = {'POS': 0, 'NEU': 1, 'NEG': 2}
+                    #sc_only
+                    # label_dict = {'POS': 0, 'NEU': 1, 'NEG': 2}
+                    # output['task'] = 'SC'
+                    # output['SC'] = torch.tensor([label_dict[x['polarity']] for x in batch])
+                    label_dict = {'O': 0, 'B-POS': 1, 'B-NEU': 2, 'B-NEG': 3, 'I': 4}
                     output['task'] = 'SC'
-                    output['SC'] = torch.tensor([label_dict[x['polarity']] for x in batch])
+                    output['SC'] = encoded_conditions['labels']
             if self._trc_enabled:
                 output['ifpairs']=[x['ifpairs'] for x in batch]
 

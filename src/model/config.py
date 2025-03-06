@@ -29,7 +29,7 @@ class MultiModalBartConfig(BartConfig):
             is_encoder_decoder=True,
             pad_token_id=1,
             bos_token_id=0,
-            eos_token_id=2,
+            eos_token_id=1,
             img_feat_id=50273,
             cls_token_id=50276,
             normalize_before=False,

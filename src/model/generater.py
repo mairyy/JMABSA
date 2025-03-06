@@ -109,7 +109,7 @@ class SequenceGeneratorModel(nn.Module):
         :param torch.LongTensor src_seq_len: bsz
         :return:
         """
-        state = self.seq2seq_model.prepare_state(input_ids, image_features, noun_mask,
+        state, syn_feature, sim_feature = self.seq2seq_model.prepare_state(input_ids, image_features, noun_mask,
                                                  attention_mask, syn_dep_adj_matrix, syn_dis_adj_matrix, sentiment_value)
         # state.encoder_output=att_features
         # state.encoder_mask=noun_mask

@@ -67,13 +67,17 @@ def main(rank, args):
     else:
         #device = torch.device("cuda:{}".format(rank))
         #map_location = {'cuda:%d' % 0: 'cuda:%d' % rank}
-        device = torch.device('cuda')
+        device = torch.device('mps')
         map_location = device
     args.device=device
     infos = json.load(open(args.dataset[0][1], 'r'))
     args.vocab_dep = pickle.load(open(infos['data_dir'] + '/vocab_dep.vocab', 'rb')).stoi
     args.dep_vocab_size = len(args.vocab_dep)
-    tokenizer = ConditionTokenizer(args=args)
+
+    if args.text_encoder == 'bart':
+        tokenizer = ConditionTokenizer(args=args)
+    else:
+        tokenizer = ConditionTokenizer(args=args, pretrained_model_name='bert-base-cased')
     args.label_dict = {'O': 0, 'B-POS': 1, 'B-NEU': 2, 'B-NEG': 3, 'I': 4}
     label_ids = list(tokenizer.mapping2id.values())
     logger.info('Number labels: {}'.format(len(label_ids)))
@@ -428,6 +432,8 @@ def parse_args():
     parser.add_argument('--img_num', default=20, type=int, help='max img num')
 
     parser.add_argument('--crf_on', action='store_true', help='aesc task using crf')
+    parser.add_argument('--sc_only', action='store_true', help='sc task only')
+    parser.add_argument('--text_encoder', default='bart', help='bart or bert')
 
     args = parser.parse_args()
     if args.encoder=='trc':

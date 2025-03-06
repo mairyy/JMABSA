@@ -24,5 +24,5 @@ do
           --dep_mode 2\
           --gpu_num 2\
           --gcn_layer_num 2\
-          --crf_on
+          --text_encoder bart
 done

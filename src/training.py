@@ -87,7 +87,10 @@ def fine_tune(epochs,
                     if args.crf_on:
                         loss = outputs.sum()
                     else:
-                        loss = criterion(outputs, aesc_infos.to(device))
+                        #print(outputs.shape, aesc_infos.shape)
+                        #print(outputs[0], torch.argmax(outputs[0], dim=-1), aesc_infos[0])
+                        #loss = criterion(outputs.permute(0, 2, 1), aesc_infos.to(device))
+                        loss = outputs
 
                 print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}'.format(
                     epoch + 1, args.epochs, epoch*len(train_loader) + i + 1, total_step, loss.item()))
@@ -105,7 +108,7 @@ def fine_tune(epochs,
 
             optimizer.step()
 
-        if args.aesc_enabled or args.crf_on:
+        if args.aesc_enabled or args.crf_on or not args.sc_only:
             res_dev = eval_utils.eval(args, model,img_encoder ,dev_loader, metric, device)
             logger.info('DEV  aesc_p:{} aesc_r:{} aesc_f:{}'.format(
                 res_dev['aesc_pre'], res_dev['aesc_rec'], res_dev['aesc_f']))
@@ -119,24 +122,26 @@ def fine_tune(epochs,
                     best_dev_res = res_dev
                     save_flag = True
 
-            if args.crf_on:
+            if args.crf_on or not args.sc_only:
+            # if args.crf_on:
                 model.RDGNN.reward_and_punishment(res_dev['aesc_f'])
             else:
                 model.seq2seq_model.RDGNN.reward_and_punishment(res_dev['aesc_f'])
         else:
-            res_dev = eval_utils.eval(args, model,img_encoder ,dev_loader, metric, device)
-            logger.info('DEV  sc_acc:{} sc_f:{}'.format(res_dev['sc_acc'], res_dev['sc_f']))
-            
-            save_flag = False
-            if best_dev_res is None:
-                best_dev_res = res_dev
-                save_flag = True
-            else:
-                if best_dev_res['sc_f'] < res_dev['sc_f']:
+            if args.sc_only:
+                res_dev = eval_utils.eval(args, model,img_encoder ,dev_loader, metric, device)
+                logger.info('DEV  sc_acc:{} sc_f:{}'.format(res_dev['sc_acc'], res_dev['sc_f']))
+                
+                save_flag = False
+                if best_dev_res is None:
                     best_dev_res = res_dev
                     save_flag = True
+                else:
+                    if best_dev_res['sc_f'] < res_dev['sc_f']:
+                        best_dev_res = res_dev
+                        save_flag = True
 
-            model.RDGNN.reward_and_punishment(res_dev['sc_acc'])
+                model.RDGNN.reward_and_punishment(res_dev['sc_acc'])
 
         if args.is_check == 1 and save_flag:
             current_checkpoint_path = os.path.join(args.checkpoint_path,
@@ -176,7 +181,7 @@ def fine_tune(epochs,
             res_test['sc_acc'], res_test['sc_rec'],
             res_test['sc_f']))    
     else:
-        if args.crf_on:
+        if args.crf_on or not args.sc_only:
             logger.info('BEST DEV  aesc_p:{} aesc_r:{} aesc_f:{}'.format(
                 best_dev_res['aesc_pre'], best_dev_res['aesc_rec'],
                 best_dev_res['aesc_f']))

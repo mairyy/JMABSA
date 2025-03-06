@@ -31,8 +31,8 @@ class Twitter_Dataset(data.Dataset):
         else:
             raise RuntimeError("split type is not exist!!!")
         
-        if args.aesc_enabled == False:
-            self.data_set = self.get_dataset(self.data_set)
+        # if args.aesc_enabled == False:
+        #     self.data_set = self.get_dataset(self.data_set)
 
         crop_size = 224
         self.transform = transforms.Compose([
@@ -90,7 +90,24 @@ class Twitter_Dataset(data.Dataset):
         return gt
     
     def get_aspect(self, dic):
-        return dic['term']
+        aspects = []
+        for x in dic:
+            aspects.append(x['term'])
+        return aspects
+    
+    def get_polarity(self, dic):
+        pol = []
+        for x in dic:
+            pol.append(x['polarity'])
+        return pol
+    
+    def get_label(self, dic):
+        dic_ = {}
+        for x in dic:
+            aspect = x['term']
+            for a in aspect:
+                dic_[a] = x['polarity']
+        return dic_
 
     def __getitem__(self, index):
         output = {}
@@ -109,8 +126,11 @@ class Twitter_Dataset(data.Dataset):
             gt = self.get_gt_aspect_senti(data['aspects'])
             output['gt'] = gt
         else:
-            output['aspects'] = self.get_aspect(data['aspects'])
-            output['polarity'] = data['aspects']['polarity']
+            if self.args.crf_on or self.args.sc_only:
+                output['aspects'] = self.get_aspect(data['aspects'])
+                output['polarity'] = self.get_polarity(data['aspects'])
+            else:
+                output['labels'] = self.get_label(data['aspects'])
         output['syn_dep_adj'] = [(d[0], d[1], d[2]) for d in data['syn_dep_adj']]
         output['syn_dis_adj'] = [(d[0], d[1], d[2]) for d in data['syn_dis_adj']]
         return output

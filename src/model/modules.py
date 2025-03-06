@@ -266,7 +266,7 @@ class MultiModalBartDecoder_span(nn.Module
         self.senti_value_linear=nn.Linear(1,768)
 
 
-    def forward(self, tokens, state,sentiment_value,only_sc=False):
+    def forward(self, tokens, state,sentiment_value,only_sc=False, image=False):
         if self.gcn_on:
             encoder_pad_mask = state.encoder_mask
             mix_feature=state.mix_feature
@@ -353,16 +353,27 @@ class MultiModalBartDecoder_span(nn.Module
                                                         src_outputs.size(-1)),
                         dim=1)
                 else:
-                    mask = state.encoder_mask[:, 51:].eq(0)
+                    if image:
+                        mask = state.encoder_mask[:, 51:].eq(0)
+                    else:
+                        mask = state.encoder_mask.eq(0)
                     # src_outputs = self.decoder.embed_tokens(src_tokens)
                 mask = mask.unsqueeze(1)
                 input_embed = self.decoder.embed_tokens(src_tokens)  # bsz x max_word_len x hidden_size
                 input_embed = self.dropout_layer(input_embed)
                 if self.avg_feature:  # 先把feature合并一下
-                    src_outputs = (src_outputs[:, 51:] + input_embed) / 2
-                word_scores = torch.einsum(
-                    'blh,bnh->bln', hidden_state,
-                    src_outputs[:, 51:])  # bsz x max_len x max_word_len
+                    if image:
+                        src_outputs = (src_outputs[:, 51:] + input_embed) / 2
+                    else:
+                        src_outputs = (src_outputs + input_embed) / 2
+                if image:
+                    word_scores = torch.einsum(
+                        'blh,bnh->bln', hidden_state,
+                        src_outputs[:, 51:])  # bsz x max_len x max_word_len
+                else:
+                    word_scores = torch.einsum(
+                        'blh,bnh->bln', hidden_state,
+                        src_outputs) 
                 if not self.avg_feature:
                     gen_scores = torch.einsum(
                         'blh,bnh->bln', hidden_state,
@@ -488,5 +499,8 @@ class Span_loss(nn.Module):
     def forward(self, tgt_tokens, pred, mask):
 
         tgt_tokens = tgt_tokens.masked_fill(mask.eq(0), -100)
+        # output = F.cross_entropy(target=tgt_tokens, input=pred.transpose(1, 2),\
+        #                         weight=torch.tensor([0.5, 2, 2, 2, 2], device=pred.device))
         output = F.cross_entropy(target=tgt_tokens, input=pred.transpose(1, 2))
+
         return output
