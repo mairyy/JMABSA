@@ -114,8 +114,7 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         causal_mask = torch.zeros(512, 512).fill_(float('-inf'))
         self.causal_mask = causal_mask.triu(diagonal=1)
         self.encoder = multimodal_encoder
-        only_sc = False
-        need_tag = True  #if predict the sentiment or not
+
         self.gcn_on=args.gcn_on
         self.sentinet_on=args.sentinet_on
         self.dep_mode=args.dep_mode
@@ -124,15 +123,6 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         self.gcn_dropout=args.gcn_dropout
         self.gcn_proportion=args.gcn_proportion
 
-        # self.decoder = MultiModalBartDecoder_span(self.config,
-        #                                          tokenizer,
-        #                                          share_decoder,
-        #                                          tokenizer.pad_token_id,
-        #                                          label_ids,
-        #                                          self.causal_mask,
-        #                                          self.gcn_on,
-        #                                          need_tag=need_tag,
-        #                                          only_sc=False)
         self.span_loss_fct = Span_loss()
 
         # add
@@ -169,18 +159,12 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         self.num_labels = len(args.label_dict)
         self.crf_on = args.crf_on
         self.sc_only = args.sc_only
-        if self.aesc_enabled == False:
-            if self.crf_on:
-                self.projection = nn.Linear(768, self.num_labels)
-                self.crf = CRF(num_tags=self.num_labels, batch_first=True)
-            else:
-                if self.sc_only:
-                    self.classifier = nn.Linear(768, 3)
-                else:
-                    self.aesc_pred = CustomDecoder(768, 512, 256, self.num_labels)
-                    self.criterion = nn.CrossEntropyLoss()
-                    self.projection = nn.Linear(768, self.num_labels)
-                    self.crf = CRF(num_tags=self.num_labels, batch_first=True)
+        self.w_l = args.w_l
+
+        self.projection = nn.Linear(768, self.num_labels)
+        self.crf = CRF(num_tags=self.num_labels, batch_first=True)
+
+        # self.aesc_pred = CustomDecoder(768, 512, 256, self.num_labels)
         
     def get_noun_embed(self,feature,noun_mask):
         # print(feature.shape,noun_mask.shape)
@@ -205,10 +189,8 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
     def prepare_state(self,
                       input_ids,
                       image_features,
-                      # noun_ids,
                       noun_mask,
                       attention_mask=None,
-                      #dependency_matrix=None,
                       syn_dep_adj_matrix=None,
                       syn_dis_adj_matrix=None,
                       sentiment_value=None,
@@ -217,69 +199,24 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
                       first=None,
                       aspect_mask=None,
                       labels=None):
-        if self.text_encoder == 'bart':
-            dict = self.encoder(input_ids=input_ids,
-                                image_features=image_features,
-                                attention_mask=attention_mask,
-                                output_hidden_states=True,
-                                return_dict=True)
-        else:
-            dict = self.encoder(input_ids, attention_mask=attention_mask)
+
+        dict = self.encoder(input_ids=input_ids,
+                            image_features=image_features,
+                            attention_mask=attention_mask,
+                            output_hidden_states=True,
+                            return_dict=True)
         encoder_outputs = dict.last_hidden_state
         hidden_states = dict.hidden_states
         encoder_mask = attention_mask
         src_embed_outputs = hidden_states[0]
 
-        #if self.nn_attention_on:
-            # 获取名词的embedding
-        #noun_embed=self.get_noun_embed(encoder_outputs,noun_mask)
-        #noun_feature=self.noun_attention(encoder_outputs,noun_embed,mode=self.nn_attention_mode)
-
-        # gcn
-        #senti_feature, context_feature,mix_feature=None,None,None
-        #if self.sentinet_on and self.gcn_on:
-        #    mix_feature = self.multimodal_GCN(encoder_outputs, dependency_matrix, attention_mask,noun_mask,sentiment_value)
-        #elif self.gcn_on:
-        #    mix_feature = self.multimodal_GCN(encoder_outputs, dependency_matrix, attention_mask,noun_mask)
         syn_feature = self.RDGNN(encoder_outputs, syn_dep_adj_matrix, syn_dis_adj_matrix, True)
         sim_feature = self.Sim_GCN(encoder_outputs, encoder_outputs, attention_mask)
 
-        #embeddings_norm = F.normalize(encoder_outputs, p=2, dim=-1)
-        #adj_matrix = torch.matmul(embeddings_norm, embeddings_norm.transpose(1, 2))
-        #expanded_mask = attention_mask.unsqueeze(-1)
-        #adj_matrix = adj_matrix * expanded_mask * expanded_mask.transpose(1, 2)
-        #sim_feature = self.Sim_GCN(noun_feature, encoder_outputs, attention_mask)
-
-        # mix_feature = syn_feature + sim_feature
         mix_feature = self.fusion(torch.cat([syn_feature, sim_feature], dim=-1))
-        #mix_feature = syn_feature
 
-        if self.aesc_enabled == False:
-            if self.crf_on:
-                emissions = self.projection(mix_feature)
-                return emissions
-            else:
-                if self.sc_only:
-                    asp_wn = aspect_mask.sum(dim=1).unsqueeze(-1)      
-                    mask = aspect_mask.unsqueeze(-1).repeat(1,1,768)    
-                    #print(asp_wn.shape, mask.shape, aspect_mask.shape)
-                    outputs = (mix_feature*mask).sum(dim=1) / asp_wn 
-                    return outputs
-                else:
-                    # predict = self.aesc_pred(mix_feature)
-                    predict = self.projection(mix_feature)
-                    return predict, syn_feature, sim_feature
-        state = BartState(
-            encoder_outputs,
-            encoder_mask,
-            #input_ids[:,51:],  #the text features start from index 38, the front are image features.
-            input_ids,
-            first,
-            src_embed_outputs,
-            mix_feature
-        )
-        # setattr(state, 'tgt_seq_len', tgt_seq_len)
-        return state, syn_feature, sim_feature
+        predict = self.projection(mix_feature)
+        return predict, syn_feature, sim_feature
 
 
     def noun_attention(self,encoder_outputs,noun_embed,mode='multi-head'):
@@ -382,21 +319,20 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         return mix_feature
 
     def contrastive_loss(self, feats_1, feats_2, temp=0.07):
-        # print(feats_1.mean(dim=1).shape, feats_2.mean(dim=1).shape)
         feats_1 = feats_1.mean(dim=1)
         feats_2 = feats_2.mean(dim=1 )
         sim_matrix = torch.matmul(feats_1, feats_2.T)
 
         i_logsoftmax = nn.functional.log_softmax(sim_matrix / temp, dim=1)
         j_logsoftmax = nn.functional.log_softmax(sim_matrix.T / temp, dim=1)
-        # print(i_logsoftmax.shape, i_logsoftmax.reshape([16,-1]).shape, i_logsoftmax.unsqueeze(1).shape)
+
         i_diag = torch.diag(i_logsoftmax)
         loss_i = i_diag.mean()
 
         j_diag = torch.diag(j_logsoftmax)
         loss_j = j_diag.mean()
 
-        con_loss = - (loss_i + loss_j) / 2 #2024-07-18-11-04-57
+        con_loss = - (loss_i + loss_j) / 2 
 
         return con_loss
     
@@ -407,7 +343,6 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             sentiment_value,
             noun_mask,
             attention_mask=None,
-            #dependency_matrix=None,
             syn_dep_adj_matrix=None,
             syn_dis_adj_matrix=None,
             aesc_infos=None,
@@ -418,65 +353,27 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             output_attentions=None,
             output_hidden_states=None,
     ):
-        if self.aesc_enabled == False:
-            if self.crf_on or self.sc_only:
-                logits = self.prepare_state(input_ids=input_ids,
-                        image_features=image_features,
-                        noun_mask=noun_mask,
-                        attention_mask=attention_mask,
-                        syn_dep_adj_matrix=syn_dep_adj_matrix,
-                        syn_dis_adj_matrix=syn_dis_adj_matrix,
-                        sentiment_value=sentiment_value,
-                        aspect_mask=aspect_mask,
-                        labels=labels)
-            else:
-                logits, syn_feature, sim_feature = self.prepare_state(input_ids=input_ids,
-                        image_features=image_features,
-                        noun_mask=noun_mask,
-                        attention_mask=attention_mask,
-                        syn_dep_adj_matrix=syn_dep_adj_matrix,
-                        syn_dis_adj_matrix=syn_dis_adj_matrix,
-                        sentiment_value=sentiment_value,
-                        aspect_mask=aspect_mask,
-                        labels=labels)
-            if self.crf_on:
-                if labels != None:
-                    log_likelihood = self.crf(logits, labels, mask=attention_mask.byte(), reduction='sum')
-                    return -log_likelihood
-                else:
-                    return self.crf.decode(logits, mask=attention_mask.byte())
-            else:
-                if self.sc_only:
-                    return self.classifier(logits)
-                else:
-                    if labels != None:
-                        loss = -self.crf(logits, labels, mask=attention_mask.byte(), reduction='sum')
+        logits, syn_feature, sim_feature = self.prepare_state(input_ids=input_ids,
+                image_features=image_features,
+                noun_mask=noun_mask,
+                attention_mask=attention_mask,
+                syn_dep_adj_matrix=syn_dep_adj_matrix,
+                syn_dis_adj_matrix=syn_dis_adj_matrix,
+                sentiment_value=sentiment_value,
+                aspect_mask=aspect_mask,
+                labels=labels)
 
-                        # loss = self.span_loss_fct(labels[:, 1:], logits[:, 1:, :], attention_mask[:, 1:]) \
-                        #         + self.contrastive_loss(syn_feature, sim_feature)
-                        # return loss + self.contrastive_loss(syn_feature, sim_feature)
-                        return loss
-                    return self.crf.decode(logits, mask=attention_mask.byte())
-                    # return logits
-        
-        state, syn_feature, sim_feature = self.prepare_state(input_ids=input_ids,
-                      image_features=image_features,
-                      noun_mask=noun_mask,
-                      attention_mask=attention_mask,
-                      syn_dep_adj_matrix=syn_dep_adj_matrix,
-                      syn_dis_adj_matrix=syn_dis_adj_matrix,
-                      sentiment_value=sentiment_value,
-                      aspect_mask=aspect_mask)
-        
-        spans, span_mask = [
-            aesc_infos['labels'].to(input_ids.device),
-            aesc_infos['masks'].to(input_ids.device)
-        ]
-        logits = self.decoder(spans, state,sentiment_value, image=False)
-        # logits = self.decoder(spans, state)
+        if labels != None:
+            log_likelihood = self.crf(logits, labels, mask=attention_mask.byte(), reduction='sum')
 
-        loss = self.span_loss_fct(spans[:, 1:], logits, span_mask[:, 1:]) + self.contrastive_loss(syn_feature, sim_feature)
-        return loss
+            loss_crf = -log_likelihood
+            loss_con = self.contrastive_loss(syn_feature, sim_feature)
+
+            loss = self.w_l * loss_crf + (1-self.w_l) *loss_con
+            return loss
+        else:
+            return self.crf.decode(logits, mask=attention_mask.byte())
+            
 
 
 class BartState(State):

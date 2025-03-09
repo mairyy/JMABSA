@@ -109,26 +109,26 @@ def main(rank, args):
 
     if args.checkpoint and args.no_train==False:
         seq2seq_model = torch.load(os.path.join(args.checkpoint, 'AoM.pt'))
-        if args.aesc_enabled == False:
-            model = seq2seq_model
+        # if args.aesc_enabled == False:
+        model = seq2seq_model
     else:
         seq2seq_model = MultiModalBartModel_AESC(bart_config, args,
                                                  args.bart_model, tokenizer,
                                                  label_ids)
-        if args.aesc_enabled == False:
-            model = seq2seq_model
-        else:
-            model = SequenceGeneratorModel(seq2seq_model,
-                                        bos_token_id=bos_token_id,
-                                        eos_token_id=eos_token_id,
-                                        max_length=args.max_len,
-                                        max_len_a=args.max_len_a,
-                                        num_beams=args.num_beams,
-                                        do_sample=False,
-                                        repetition_penalty=1,
-                                        length_penalty=1.0,
-                                        pad_token_id=eos_token_id,
-                                        restricter=None)
+        # if args.aesc_enabled == False:
+        model = seq2seq_model
+        # else:
+        #     model = SequenceGeneratorModel(seq2seq_model,
+        #                                 bos_token_id=bos_token_id,
+        #                                 eos_token_id=eos_token_id,
+        #                                 max_length=args.max_len,
+        #                                 max_len_a=args.max_len_a,
+        #                                 num_beams=args.num_beams,
+        #                                 do_sample=False,
+        #                                 repetition_penalty=1,
+        #                                 length_penalty=1.0,
+        #                                 pad_token_id=eos_token_id,
+        #                                 restricter=None)
     
     if torch.cuda.device_count() > 1:
         model = nn.DataParallel(model)
@@ -434,6 +434,7 @@ def parse_args():
     parser.add_argument('--crf_on', action='store_true', help='aesc task using crf')
     parser.add_argument('--sc_only', action='store_true', help='sc task only')
     parser.add_argument('--text_encoder', default='bart', help='bart or bert')
+    parser.add_argument('--w_l', default=0.5, help='weight for loss crf')
 
     args = parser.parse_args()
     if args.encoder=='trc':

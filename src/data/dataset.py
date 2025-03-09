@@ -120,17 +120,8 @@ class Twitter_Dataset(data.Dataset):
         # add
         output['noun']=data['noun']
         output['image_id'] = img_id
-        if self.args.aesc_enabled:
-            aesc_spans = self.get_aesc_spans(data['aspects'])
-            output['aesc_spans'] = aesc_spans
-            gt = self.get_gt_aspect_senti(data['aspects'])
-            output['gt'] = gt
-        else:
-            if self.args.crf_on or self.args.sc_only:
-                output['aspects'] = self.get_aspect(data['aspects'])
-                output['polarity'] = self.get_polarity(data['aspects'])
-            else:
-                output['labels'] = self.get_label(data['aspects'])
+
+        output['labels'] = self.get_label(data['aspects'])
         output['syn_dep_adj'] = [(d[0], d[1], d[2]) for d in data['syn_dep_adj']]
         output['syn_dis_adj'] = [(d[0], d[1], d[2]) for d in data['syn_dis_adj']]
         return output

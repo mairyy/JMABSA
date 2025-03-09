@@ -24,5 +24,6 @@ do
           --dep_mode 2\
           --gpu_num 2\
           --gcn_layer_num 2\
-          --text_encoder bart
+          --text_encoder bart\
+          --aesc_enabled true
 done
