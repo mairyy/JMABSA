@@ -58,7 +58,7 @@ class AESCSpanMetric(object):
         # pdb.set_trace()
         # assert opinion_first is False, "Current metric only supports aspect first"
 
-    def evaluate(self, aesc_target_span, pred, tgt_tokens):
+    def evaluate_old(self, aesc_target_span, pred, tgt_tokens):
         # print('aesc_target_span', aesc_target_span[0])
         # print(pred[0])
         # print(tgt_tokens[0])
@@ -219,6 +219,69 @@ class AESCSpanMetric(object):
 
         self.batch_step+=1
 
+    def evaluate(self, aesc_target, pred):
+        predict_pairs = self.extract_aspect_spans(pred)
+        target_pairs = self.extract_aspect_spans(aesc_target)
+        print(pred, predict_pairs, target_pairs)
+
+        aesc_target_counter = Counter()
+        aesc_pred_counter = Counter()
+        ae_target_counter = Counter()
+        ae_pred_counter = Counter()
+
+        for t in target_pairs:
+            ae_target_counter[(t[0], t[1])] = 1
+            aesc_target_counter[(t[0], t[1])] = t[2]
+
+        for p in predict_pairs:
+            ae_pred_counter[(p[0], p[1])] = 1
+            aesc_pred_counter[(p[0], p[1])] = p[-1]
+
+        tp, fn, fp = _compute_tp_fn_fp(
+            [(key[0], key[1], value) for key, value in aesc_pred_counter.items()],
+            [(key[0], key[1], value) for key, value in aesc_target_counter.items()])
+        self.aesc_fn += fn
+        self.aesc_fp += fp
+        self.aesc_tp += tp
+
+        tp, fn, fp = _compute_tp_fn_fp(list(aesc_pred_counter.keys()),
+                                    list(aesc_target_counter.keys()))
+        self.ae_fn += fn
+        self.ae_fp += fp
+        self.ae_tp += tp
+
+        for key in aesc_pred_counter:
+            if key not in aesc_target_counter:
+                continue
+            self.sc_all_num += 1
+            self.senti_wrong_statistic[aesc_target_counter[key]-3][aesc_pred_counter[key]-3] += 1
+            if aesc_target_counter[key] == aesc_pred_counter[key]:
+                self.sc_tp[aesc_pred_counter[key]] += 1
+                self.sc_right += 1
+                aesc_target_counter.pop(key)
+            else:
+                self.sc_fp[aesc_pred_counter[key]] += 1
+                self.sc_fn[aesc_target_counter[key]] += 1
+        self.batch_step += 1
+
+    def extract_aspect_spans(self, x):
+        all_spans = []
+        for seq in x:
+            spans = []
+            start, polarity = None, None
+            for i, token in enumerate(seq):
+                if token > 0 and token != 4:
+                    if start is not None:
+                        spans.append([start, i - 1, polarity])
+                    start, polarity = i, token.item()
+                elif token == 0 and start is not None:  
+                    spans.append((start, i - 1, polarity))
+                    start, polarity = None, None
+            if start is not None: 
+                spans.append((start, len(seq) - 1, polarity))
+            all_spans.append(spans)
+        return all_spans
+
     def pri(self):
         print('aesc_fp tp fn', self.aesc_fp, self.aesc_tp, self.aesc_fn)
         print('ae_fp tp fn', self.ae_fp, self.ae_tp, self.ae_fn)
@@ -260,9 +323,9 @@ class AESCSpanMetric(object):
         res['sc_pre'] = round(pre_sum * 100, 2)
         res['sc_acc'] = round(
             1.0 * self.sc_right / (self.sc_all_num + 1e-12) * 100, 2)
-        res['sc_all_num'] = self.sc_all_num
-        res['em'] = round(self.em / self.total, 4)
-        res['invalid'] = round(self.invalid / self.total, 4)
+        # res['sc_all_num'] = self.sc_all_num
+        # res['em'] = round(self.em / self.total, 4)
+        # res['invalid'] = round(self.invalid / self.total, 4)
         if reset:
             self.aesc_fp = 0
             self.aesc_tp = 0

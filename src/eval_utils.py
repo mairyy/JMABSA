@@ -33,26 +33,31 @@ def eval(args, model, img_encoder,loader, metric, device):
             syn_dis_adj_matrix=batch['syn_dis_matrix'].to(device),
             aesc_infos=aesc_infos)
 
-        targets = aesc_infos.to(device)
+        metric.evaluate(aesc_infos.to(device), predict)
+        
+        # targets = aesc_infos.to(device)
 
-        targets_all.append(targets)
-        outputs_all.extend(predict)
+        # targets_all.append(targets)
+        # outputs_all.extend(predict)
 
-        print("Eval {}/{}".format(i, len(loader)))
+        # print("Eval {}/{}".format(i, len(loader)))
         # break
 
-    res = {}
-    targets_all = pad_token(targets_all).flatten()
-    outputs_all = pad_token(outputs_all).flatten()
+    # res = {}
+    # targets_all = pad_token(targets_all).flatten()
+    # outputs_all = pad_token(outputs_all).flatten()
 
-    recall = metrics.recall_score(targets_all.cpu(), outputs_all.cpu(), average='macro')
-    precision = metrics.precision_score(targets_all.cpu(), outputs_all.cpu(), average='macro')
-    f1 = metrics.f1_score(targets_all.cpu(), outputs_all.cpu(), average='macro')
+    # recall = metrics.recall_score(targets_all.cpu(), outputs_all.cpu(), average='macro')
+    # precision = metrics.precision_score(targets_all.cpu(), outputs_all.cpu(), average='macro')
+    # f1 = metrics.f1_score(targets_all.cpu(), outputs_all.cpu(), average='macro')
+    # model.train()
+
+    # res['aesc_rec'] = round(recall * 100, 2)
+    # res['aesc_pre'] = round(precision * 100, 2)
+    # res['aesc_f'] = round(f1 * 100, 2)
+    res = metric.get_metric()
     model.train()
 
-    res['aesc_rec'] = round(recall * 100, 2)
-    res['aesc_pre'] = round(precision * 100, 2)
-    res['aesc_f'] = round(f1 * 100, 2)
     return res
 
 

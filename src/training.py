@@ -92,6 +92,10 @@ def fine_tune(epochs,
         res_dev = eval_utils.eval(args, model,img_encoder ,dev_loader, metric, device)
         logger.info('DEV  aesc_p:{} aesc_r:{} aesc_f:{}'.format(
             res_dev['aesc_pre'], res_dev['aesc_rec'], res_dev['aesc_f']))
+        logger.info('DEV  ae_p:{} ae_r:{} ae_f:{}'.format(
+            res_dev['ae_pre'], res_dev['ae_rec'], res_dev['ae_f']))
+        logger.info('DEV  sc_acc:{} sc_r:{} sc_f:{}'.format(
+            res_dev['sc_acc'], res_dev['sc_rec'], res_dev['sc_f']))
         
         save_flag = False
         if best_dev_res is None:
@@ -123,9 +127,23 @@ def fine_tune(epochs,
     logger.info('BEST DEV aesc_p:{} aesc_r:{} aesc_f:{}'.format(
         best_dev_res['aesc_pre'], best_dev_res['aesc_rec'],
         best_dev_res['aesc_f']))
+    logger.info('BEST DEV  ae_p:{} ae_r:{} ae_f:{}'.format(
+        best_dev_res['ae_pre'], best_dev_res['ae_rec'],
+        best_dev_res['ae_f']))
+    logger.info('BEST DEV  sc_acc:{} sc_r:{} sc_f:{}'.format(
+        best_dev_res['sc_acc'], best_dev_res['sc_rec'],
+        best_dev_res['sc_f']))
+    
     logger.info('TEST aesc_p:{} aesc_r:{} aesc_f:{}'.format(
         res_test['aesc_pre'], res_test['aesc_rec'],
         res_test['aesc_f']))
+    logger.info('TEST  ae_p:{} ae_r:{} ae_f:{}'.format(
+        best_test_res['ae_pre'], best_test_res['ae_rec'],
+        best_test_res['ae_f']))
+    logger.info('TEST  sc_acc:{} sc_r:{} sc_f:{}'.format(
+        best_test_res['sc_acc'], best_test_res['sc_rec'],
+        best_test_res['sc_f']))
+
     
 
 
