@@ -12,7 +12,7 @@ do
           --train_batch_size 16  \
           --dev_batch_size 16  \
           --test_batch_size 16  \
-          --epochs 35 \
+          --epochs 40 \
           --grad_clip 5 \
           --warmup 0.1 \
           --seed 57 \

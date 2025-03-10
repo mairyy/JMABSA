@@ -138,11 +138,11 @@ def fine_tune(epochs,
         res_test['aesc_pre'], res_test['aesc_rec'],
         res_test['aesc_f']))
     logger.info('TEST  ae_p:{} ae_r:{} ae_f:{}'.format(
-        best_test_res['ae_pre'], best_test_res['ae_rec'],
-        best_test_res['ae_f']))
+        res_test['ae_pre'], res_test['ae_rec'],
+        res_test['ae_f']))
     logger.info('TEST  sc_acc:{} sc_r:{} sc_f:{}'.format(
-        best_test_res['sc_acc'], best_test_res['sc_rec'],
-        best_test_res['sc_f']))
+        res_test['sc_acc'], res_test['sc_rec'],
+        res_test['sc_f']))
 
     
 

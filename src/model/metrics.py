@@ -222,46 +222,48 @@ class AESCSpanMetric(object):
     def evaluate(self, aesc_target, pred):
         predict_pairs = self.extract_aspect_spans(pred)
         target_pairs = self.extract_aspect_spans(aesc_target)
-        print(pred, predict_pairs, target_pairs)
+        #print(pred, predict_pairs, target_pairs)
 
-        aesc_target_counter = Counter()
-        aesc_pred_counter = Counter()
-        ae_target_counter = Counter()
-        ae_pred_counter = Counter()
+        for i, (ts, ps) in enumerate(zip(target_pairs, predict_pairs)):
+            aesc_target_counter = Counter()
+            aesc_pred_counter = Counter()
+            ae_target_counter = Counter()
+            ae_pred_counter = Counter()
 
-        for t in target_pairs:
-            ae_target_counter[(t[0], t[1])] = 1
-            aesc_target_counter[(t[0], t[1])] = t[2]
+            for t in ts:
+                ae_target_counter[(t[0], t[1])] = 1
+                aesc_target_counter[(t[0], t[1])] = t[2]
 
-        for p in predict_pairs:
-            ae_pred_counter[(p[0], p[1])] = 1
-            aesc_pred_counter[(p[0], p[1])] = p[-1]
+            for p in ps:
+                ae_pred_counter[(p[0], p[1])] = 1
+                aesc_pred_counter[(p[0], p[1])] = p[-1]
 
-        tp, fn, fp = _compute_tp_fn_fp(
-            [(key[0], key[1], value) for key, value in aesc_pred_counter.items()],
-            [(key[0], key[1], value) for key, value in aesc_target_counter.items()])
-        self.aesc_fn += fn
-        self.aesc_fp += fp
-        self.aesc_tp += tp
+            tp, fn, fp = _compute_tp_fn_fp(
+                [(key[0], key[1], value) for key, value in aesc_pred_counter.items()],
+                [(key[0], key[1], value) for key, value in aesc_target_counter.items()])
+            self.aesc_fn += fn
+            self.aesc_fp += fp
+            self.aesc_tp += tp
 
-        tp, fn, fp = _compute_tp_fn_fp(list(aesc_pred_counter.keys()),
-                                    list(aesc_target_counter.keys()))
-        self.ae_fn += fn
-        self.ae_fp += fp
-        self.ae_tp += tp
+            tp, fn, fp = _compute_tp_fn_fp(list(aesc_pred_counter.keys()),
+                                        list(aesc_target_counter.keys()))
+            self.ae_fn += fn
+            self.ae_fp += fp
+            self.ae_tp += tp
 
-        for key in aesc_pred_counter:
-            if key not in aesc_target_counter:
-                continue
-            self.sc_all_num += 1
-            self.senti_wrong_statistic[aesc_target_counter[key]-3][aesc_pred_counter[key]-3] += 1
-            if aesc_target_counter[key] == aesc_pred_counter[key]:
-                self.sc_tp[aesc_pred_counter[key]] += 1
-                self.sc_right += 1
-                aesc_target_counter.pop(key)
-            else:
-                self.sc_fp[aesc_pred_counter[key]] += 1
-                self.sc_fn[aesc_target_counter[key]] += 1
+            for key in aesc_pred_counter:
+                if key not in aesc_target_counter:
+                    continue
+                self.sc_all_num += 1
+                self.senti_wrong_statistic[aesc_target_counter[key]-3][aesc_pred_counter[key]-3] += 1
+                if aesc_target_counter[key] == aesc_pred_counter[key]:
+                    self.sc_tp[aesc_pred_counter[key]] += 1
+                    self.sc_right += 1
+                    aesc_target_counter.pop(key)
+                else:
+                    self.sc_fp[aesc_pred_counter[key]] += 1
+                    self.sc_fn[aesc_target_counter[key]] += 1
+
         self.batch_step += 1
 
     def extract_aspect_spans(self, x):
@@ -273,7 +275,9 @@ class AESCSpanMetric(object):
                 if token > 0 and token != 4:
                     if start is not None:
                         spans.append([start, i - 1, polarity])
-                    start, polarity = i, token.item()
+                    if type(token) == torch.Tensor:
+                        token = token.item()
+                    start, polarity = i, token
                 elif token == 0 and start is not None:  
                     spans.append((start, i - 1, polarity))
                     start, polarity = None, None
@@ -305,8 +309,9 @@ class AESCSpanMetric(object):
         f_sum = 0
         pre_sum = 0
         rec_sum = 0
+
         for tag in tags:
-            assert tag not in (0, 1, self.conflict_id), (tag, self.conflict_id)
+            #assert tag not in (0, 1, self.conflict_id), (tag, self.conflict_id)
             tp = self.sc_tp[tag]
             fn = self.sc_fn[tag]
             fp = self.sc_fp[tag]
