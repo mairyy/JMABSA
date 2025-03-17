@@ -25,5 +25,6 @@ do
           --gpu_num 2\
           --gcn_layer_num 2\
           --text_encoder bart\
-          --aesc_enabled true
+          --aesc_enabled true\
+          --img_num 49
 done

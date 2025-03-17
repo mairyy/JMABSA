@@ -12,7 +12,7 @@ from src.model.modeling_bart import (PretrainedBartModel, BartEncoder,
 from transformers import BartTokenizer, BertModel
 
 from src.model.config import MultiModalBartConfig
-from src.model.modules import MultiModalBartEncoder, MultiModalBartDecoder_span, Span_loss
+from src.model.modules import MultiModalBartEncoder, MultiModalBartDecoder_span, Span_loss, ImageEmbedding
 import numpy as np
 import torch.nn as nn
 import math
@@ -26,6 +26,7 @@ import os
 from torchcrf import CRF
 
 from src.model.RDGNN import RDGNN, Sim_GCN
+from src.model.CrossTransformer import Cross_Transformer2
 
 class CustomDecoder(nn.Module):
     def __init__(self, input_size, hidden_size1, hidden_size2, num_labels):
@@ -129,8 +130,8 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         #self.noun_linear=nn.Linear(768,768)
         #self.multi_linear=nn.Linear(768,768)
         #self.att_linear=nn.Linear(768*2,1)
-        #self.attention=Attention(4,768,768)
-        #self.linear=nn.Linear(768*2,1)
+        self.attention=Attention(4,768,768)
+        self.linear=nn.Linear(768*2,1)
         #self.linear2=nn.Linear(768*2,1)
 
         #self.alpha_linear1=nn.Linear(768,768)
@@ -161,29 +162,36 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         self.sc_only = args.sc_only
         self.w_l = args.w_l
 
+        self.img_embedding = ImageEmbedding(2048, 768)
+        self.cross_transformer = Cross_Transformer2(768)
+        self.cross_transformer_2 = Cross_Transformer2(768)
+        self.fusion_2 = nn.Linear(768*2, 768)
+
         self.projection = nn.Linear(768, self.num_labels)
         self.crf = CRF(num_tags=self.num_labels, batch_first=True)
 
         # self.aesc_pred = CustomDecoder(768, 512, 256, self.num_labels)
         
     def get_noun_embed(self,feature,noun_mask):
+        expanded_mask = noun_mask.unsqueeze(-1)  # Shape: [batch_size, seq_len, 1]
+        noun_embed = feature * expanded_mask
         # print(feature.shape,noun_mask.shape)
-        noun_mask = noun_mask.cpu()
-        noun_num = [x.numpy().tolist().count(1) for x in noun_mask]
-        noun_position=[np.where(np.array(x)==1)[0].tolist() for x in noun_mask]
-        for i,x in enumerate(noun_position):
-            assert len(x)==noun_num[i]
-        max_noun_num = max(noun_num)
+        # noun_mask = noun_mask.cpu()
+        # noun_num = [x.numpy().tolist().count(1) for x in noun_mask]
+        # noun_position=[np.where(np.array(x)==1)[0].tolist() for x in noun_mask]
+        # for i,x in enumerate(noun_position):
+        #     assert len(x)==noun_num[i]
+        # max_noun_num = max(noun_num)
 
-        # pad
-        for i,x in enumerate(noun_position):
-            if len(x)<max_noun_num:
-                noun_position[i]+=[0]*(max_noun_num-len(x))
-        noun_position=torch.tensor(noun_position).to('cuda')
-        noun_embed=torch.zeros(feature.shape[0],max_noun_num,feature.shape[-1]).to('cuda')
-        for i in range(len(feature)):
-            noun_embed[i]=torch.index_select(feature[i],dim=0,index=noun_position[i])
-            noun_embed[i,noun_num[i]:]=torch.zeros(max_noun_num-noun_num[i],feature.shape[-1])
+        # # pad
+        # for i,x in enumerate(noun_position):
+        #     if len(x)<max_noun_num:
+        #         noun_position[i]+=[0]*(max_noun_num-len(x))
+        # noun_position=torch.tensor(noun_position).to('mps')
+        # noun_embed=torch.zeros(feature.shape[0],max_noun_num,feature.shape[-1]).to('mps')
+        # for i in range(len(feature)):
+        #     noun_embed[i]=torch.index_select(feature[i],dim=0,index=noun_position[i])
+        #     noun_embed[i,noun_num[i]:]=torch.zeros(max_noun_num-noun_num[i],feature.shape[-1])
         return noun_embed
 
     def prepare_state(self,
@@ -201,7 +209,7 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
                       labels=None):
 
         dict = self.encoder(input_ids=input_ids,
-                            image_features=image_features,
+                            image_features=None,
                             attention_mask=attention_mask,
                             output_hidden_states=True,
                             return_dict=True)
@@ -210,13 +218,29 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         encoder_mask = attention_mask
         src_embed_outputs = hidden_states[0]
 
+        img_emb = torch.stack(self.img_embedding(image_features))
+
+        noun_embed=self.get_noun_embed(encoder_outputs, noun_mask)
+        # print(noun_embed.shape)
+        img_noun_feat = self.noun_attention(noun_embed, img_emb)
+
         syn_feature = self.RDGNN(encoder_outputs, syn_dep_adj_matrix, syn_dis_adj_matrix, True)
         sim_feature = self.Sim_GCN(encoder_outputs, encoder_outputs, attention_mask)
 
         mix_feature = self.fusion(torch.cat([syn_feature, sim_feature], dim=-1))
+        # print(img_noun_feat.shape, img_noun_feat, mix_feature, mix_feature.shape)
+        # multimodal_feature = self.cross_transformer(img_noun_feat, img_noun_feat, img_noun_feat, mix_feature)
 
-        predict = self.projection(mix_feature)
-        return predict, syn_feature, sim_feature
+        # multimodal_feature = self.cross_transformer(mix_feature, mix_feature, mix_feature, img_noun_feat) #56.76
+
+        multimodal_feature_1 = self.cross_transformer(mix_feature, img_noun_feat, img_noun_feat, mix_feature)
+        multimodal_feature_2 = self.cross_transformer(mix_feature, img_emb, img_emb, mix_feature)
+        # print(multimodal_feature_2.shape, multimodal_feature_1.shape)
+        multimodal_feature = self.fusion_2(torch.cat([multimodal_feature_1, multimodal_feature_2], dim=-1))
+
+        # predict = self.projection(mix_feature)
+        predict = self.projection(multimodal_feature)
+        return predict, syn_feature, sim_feature, 
 
 
     def noun_attention(self,encoder_outputs,noun_embed,mode='multi-head'):

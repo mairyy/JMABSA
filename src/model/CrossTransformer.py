@@ -72,12 +72,12 @@ class Cross_Transformer2(nn.Module):
         value_transformed = self.value_layer(value)
 
         # 注意力机制
-        attn_weights = torch.matmul(query_transformed, key_transformed.transpose(0, 1))
+        attn_weights = torch.matmul(query_transformed, key_transformed.transpose(1, 2))
         attn_weights = F.softmax(attn_weights, dim=-1)
 
         # 使用注意力权重对 Value 进行加权求和
         output = torch.matmul(attn_weights, value_transformed)
-        # print(output.shape) #（10,768）
+        # print(output.shape) # [16, 30, 768]
 
         # Add & Layer Normalization
         attention_output1 = self.layer_norm(output + query1)
@@ -88,41 +88,23 @@ class Cross_Transformer2(nn.Module):
         value_transformed2 = self.value_layer(attention_output1)
 
         # 注意力机制
-        attn_weights = torch.matmul(query_transformed2, key_transformed2.transpose(0, 1))
+        attn_weights = torch.matmul(query_transformed2, key_transformed2.transpose(1, 2))
         attn_weights = F.softmax(attn_weights, dim=-1)
 
         # 使用注意力权重对 Value 进行加权求和
         output = torch.matmul(attn_weights, value_transformed2)
-        # print(output.shape) #（10,768）
+        # print(output.shape) #[16, 30, 768]
 
         # Add & Layer Normalization
         attention_output2 = self.layer_norm(output + query2)
-
-
 
         # MLP
         mlp_output = self.mlp_layer(attention_output2)
 
         # 另一个 Add & Layer Normalization
         final_output = self.layer_norm(mlp_output + attention_output2)
-        # print(final_output.shape) #（10,768）
+        # print(final_output.shape) #[16, 30, 768]
 
         return final_output
 
-
-
-
-# # 使用示例
-# query1 = torch.randn(5, 768)
-# text = torch.randn(10, 768)  #Query
-# image = torch.randn(196, 512)  #Key,Value
-#
-# #转换image的维度
-# desired_size = 768
-# pad_size = desired_size - image.size(1)
-# image_reshaped = torch.cat([image, torch.zeros(image.size(0), pad_size)], dim=1)
-# print(image_reshaped.shape)   #(196,768)
-#
-# featureinteraction = Cross_Transformer2(768)
-# final_output = featureinteraction(query1, image_reshaped, image_reshaped, text)
 
