@@ -15,25 +15,29 @@ def eval(args, model, img_encoder,loader, metric, device):
     for i, batch in enumerate(loader):
         # Forward pass
         aesc_infos = batch['AESC']
-        #with torch.no_grad():
-            #imgs_f = [x.numpy().tolist() for x in batch['image_features']]
-            #imgs_f = torch.tensor(imgs_f).to(device)
-            #imgs_f, img_mean, img_att = img_encoder(imgs_f, 7)
-            #img_att = img_att.view(-1, 2048, args.img_num).permute(0, 2, 1)
-            #img_att = img_att[:, :args.img_num,:]
+        # aesc_infos = {key: value for key, value in batch['AESC'].items()}
+        with torch.no_grad():
+            imgs_f = [x.numpy().tolist() for x in batch['image_features']]
+            imgs_f = torch.tensor(imgs_f).to(device)
+            imgs_f, img_mean, img_att = img_encoder(imgs_f, 7)
+            img_att = img_att.view(-1, 2048, args.img_num).permute(0, 2, 1)
+            # img_att = img_att[:, :args.img_num,:]
 
         predict = model.forward(
+        # predict = model.predict(
             input_ids=batch['input_ids'].to(device),
-            #image_features=list(map(lambda x: x.to(device), img_att)),
-            image_features=None,
+            image_features=list(map(lambda x: x.to(device), img_att)),
+            # image_features=None,
             sentiment_value=batch['sentiment_value'].to(device) if batch['sentiment_value'] is not None else None,
             noun_mask=batch['noun_mask'].to(device),
             attention_mask=batch['attention_mask'].to(device),
             syn_dep_adj_matrix=batch['syn_dep_matrix'].to(device),
             syn_dis_adj_matrix=batch['syn_dis_matrix'].to(device),
             aesc_infos=aesc_infos)
-
+        print(aesc_infos.shape, aesc_infos)
         metric.evaluate(aesc_infos.to(device), predict)
+        # metric.evaluate(aesc_infos['spans'], predict,
+        #                 aesc_infos['labels'].to(device))
         
         # targets = aesc_infos.to(device)
 

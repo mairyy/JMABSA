@@ -124,6 +124,12 @@ class Twitter_Dataset(data.Dataset):
         output['labels'] = self.get_label(data['aspects'])
         output['syn_dep_adj'] = [(d[0], d[1], d[2]) for d in data['syn_dep_adj']]
         output['syn_dis_adj'] = [(d[0], d[1], d[2]) for d in data['syn_dis_adj']]
+
+        # aesc_spans = self.get_aesc_spans(data['aspects'])
+        # output['aesc_spans'] = aesc_spans
+        # gt = self.get_gt_aspect_senti(data['aspects'])
+        # output['gt'] = gt
+        
         return output
 
 

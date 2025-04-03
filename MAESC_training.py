@@ -18,7 +18,7 @@ from src.data.dataset import Twitter_Dataset
 from src.data.tokenization_new import ConditionTokenizer
 from src.model.config import MultiModalBartConfig
 from src.model.MAESC_model import MultiModalBartModel_AESC
-from src.model.model import TRCPretrain
+from src.model.model import TRCPretrain, AoM_Pretrained
 from src.training import fine_tune
 from src.utils import Logger, save_training_data, load_training_data, setup_process, cleanup_process
 from src.model.metrics import AESCSpanMetric
@@ -111,6 +111,7 @@ def main(rank, args):
         seq2seq_model = torch.load(os.path.join(args.checkpoint, 'AoM.pt'))
         # if args.aesc_enabled == False:
         model = seq2seq_model
+        logger.info(f'Resume training from {args.checkpoint}')
     else:
         seq2seq_model = MultiModalBartModel_AESC(bart_config, args,
                                                  args.bart_model, tokenizer,
@@ -118,18 +119,37 @@ def main(rank, args):
         # if args.aesc_enabled == False:
         model = seq2seq_model
         # else:
-        #     model = SequenceGeneratorModel(seq2seq_model,
-        #                                 bos_token_id=bos_token_id,
-        #                                 eos_token_id=eos_token_id,
-        #                                 max_length=args.max_len,
-        #                                 max_len_a=args.max_len_a,
-        #                                 num_beams=args.num_beams,
-        #                                 do_sample=False,
-        #                                 repetition_penalty=1,
-        #                                 length_penalty=1.0,
-        #                                 pad_token_id=eos_token_id,
-        #                                 restricter=None)
+        # model = SequenceGeneratorModel(seq2seq_model,
+        #                             bos_token_id=bos_token_id,
+        #                             eos_token_id=eos_token_id,
+        #                             max_length=args.max_len,
+        #                             max_len_a=args.max_len_a,
+        #                             num_beams=args.num_beams,
+        #                             do_sample=False,
+        #                             repetition_penalty=1,
+        #                             length_penalty=1.0,
+        #                             pad_token_id=eos_token_id,
+        #                             restricter=None)
     
+        # if args.trc_on:
+        #     aom_model = AoM_Pretrained.from_pretrained(
+        #         args.trc_pretrain_file,
+        #         config=bart_config,
+        #         bart_model=args.bart_model,
+        #         tokenizer=tokenizer,
+        #         label_ids=label_ids,
+        #         args=args
+        #     )
+        #     model.seq2seq_model.encoder.load_state_dict(aom_model.encoder.state_dict())
+        #     model.seq2seq_model.noun_linear.load_state_dict(aom_model.noun_linear.state_dict())
+        #     model.seq2seq_model.multi_linear.load_state_dict(aom_model.multi_linear.state_dict())
+        #     model.seq2seq_model.att_linear.load_state_dict(aom_model.att_linear.state_dict())
+        #     model.seq2seq_model.attention.load_state_dict(aom_model.attention.state_dict())
+        #     model.seq2seq_model.linear.load_state_dict(aom_model.linear.state_dict())
+        #     model.seq2seq_model.alpha_linear1.load_state_dict(aom_model.alpha_linear1.state_dict())
+        #     model.seq2seq_model.alpha_linear2.load_state_dict(aom_model.alpha_linear2.state_dict())
+        #     logger.info('aom model loaded.')
+
     if torch.cuda.device_count() > 1:
         model = nn.DataParallel(model)
     
@@ -185,11 +205,21 @@ def main(rank, args):
             model=torch.load('AoM-ckpt/Twitter2017/AoM.pt', map_location=map_location)
 
         res_test = eval_utils.eval(args, model, img_encoder, test_loader, metric, device)
-        if args.aesc_enabled:
-            logger.info('TEST  aesc_p:{} aesc_r:{} aesc_f:{}'.format(
-                res_test['aesc_pre'], res_test['aesc_rec'], res_test['aesc_f']))
-        else:
-            logger.info('TEST  sc_acc:{} sc_f:{}'.format(res_test['sc_acc'], res_test['sc_f']))
+
+        logger.info('TEST aesc_p:{} aesc_r:{} aesc_f:{}'.format(
+            res_test['aesc_pre'], res_test['aesc_rec'],
+            res_test['aesc_f']))
+        logger.info('TEST  ae_p:{} ae_r:{} ae_f:{}'.format(
+            res_test['ae_pre'], res_test['ae_rec'],
+            res_test['ae_f']))
+        logger.info('TEST  sc_acc:{} sc_r:{} sc_f:{}'.format(
+            res_test['sc_acc'], res_test['sc_rec'],
+            res_test['sc_f']))
+        #if args.aesc_enabled:
+        #    logger.info('TEST  aesc_p:{} aesc_r:{} aesc_f:{}'.format(
+        #        res_test['aesc_pre'], res_test['aesc_rec'], res_test['aesc_f']))
+        #else:
+        #    logger.info('TEST  sc_acc:{} sc_f:{}'.format(res_test['sc_acc'], res_test['sc_f']))
     else:
         model.train()
         img_encoder.train()

@@ -222,7 +222,7 @@ class AESCSpanMetric(object):
     def evaluate(self, aesc_target, pred):
         predict_pairs = self.extract_aspect_spans(pred)
         target_pairs = self.extract_aspect_spans(aesc_target)
-        #print(pred, predict_pairs, target_pairs)
+        print(pred, aesc_target, predict_pairs, target_pairs)
 
         for i, (ts, ps) in enumerate(zip(target_pairs, predict_pairs)):
             aesc_target_counter = Counter()

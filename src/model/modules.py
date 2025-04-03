@@ -266,7 +266,7 @@ class MultiModalBartDecoder_span(nn.Module
         self.senti_value_linear=nn.Linear(1,768)
 
 
-    def forward(self, tokens, state,sentiment_value,only_sc=False, image=False):
+    def forward(self, tokens, state,sentiment_value,only_sc=False, image=True):
         if self.gcn_on:
             encoder_pad_mask = state.encoder_mask
             mix_feature=state.mix_feature

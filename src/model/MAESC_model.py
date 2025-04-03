@@ -123,18 +123,28 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         self.gcn_dropout=args.gcn_dropout
         self.gcn_proportion=args.gcn_proportion
 
+        self.decoder = MultiModalBartDecoder_span(self.config,
+                                                  tokenizer,
+                                                  share_decoder,
+                                                  tokenizer.pad_token_id,
+                                                  label_ids,
+                                                  self.causal_mask,
+                                                  self.gcn_on,
+                                                  need_tag=True,
+                                                  only_sc=False)
+        
         self.span_loss_fct = Span_loss()
 
         # add
-        #self.noun_linear=nn.Linear(768,768)
-        #self.multi_linear=nn.Linear(768,768)
-        #self.att_linear=nn.Linear(768*2,1)
-        #self.attention=Attention(4,768,768)
-        #self.linear=nn.Linear(768*2,1)
-        #self.linear2=nn.Linear(768*2,1)
+        self.noun_linear=nn.Linear(768,768)
+        self.multi_linear=nn.Linear(768,768)
+        self.att_linear=nn.Linear(768*2,1)
+        self.attention=Attention(4,768,768)
+        self.linear=nn.Linear(768*2,1)
+        self.linear2=nn.Linear(768*2,1)
 
-        #self.alpha_linear1=nn.Linear(768,768)
-        #self.alpha_linear2=nn.Linear(768,768)
+        self.alpha_linear1=nn.Linear(768,768)
+        self.alpha_linear2=nn.Linear(768,768)
 
         #self.senti_linear = nn.Linear(768, 768)
         #self.context_linear = nn.Linear(768, 768)
@@ -179,8 +189,8 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         for i,x in enumerate(noun_position):
             if len(x)<max_noun_num:
                 noun_position[i]+=[0]*(max_noun_num-len(x))
-        noun_position=torch.tensor(noun_position).to('cuda')
-        noun_embed=torch.zeros(feature.shape[0],max_noun_num,feature.shape[-1]).to('cuda')
+        noun_position=torch.tensor(noun_position).to(feature.device)
+        noun_embed=torch.zeros(feature.shape[0],max_noun_num,feature.shape[-1]).to(feature.device)
         for i in range(len(feature)):
             noun_embed[i]=torch.index_select(feature[i],dim=0,index=noun_position[i])
             noun_embed[i,noun_num[i]:]=torch.zeros(max_noun_num-noun_num[i],feature.shape[-1])
@@ -210,12 +220,29 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         encoder_mask = attention_mask
         src_embed_outputs = hidden_states[0]
 
-        syn_feature = self.RDGNN(encoder_outputs, syn_dep_adj_matrix, syn_dis_adj_matrix, True)
+        syn_feature = self.RDGNN(encoder_outputs, syn_dep_adj_matrix, syn_dis_adj_matrix, True, False)
+
+        noun_embed=self.get_noun_embed(encoder_outputs,noun_mask)
+        encoder_outputs=self.noun_attention(encoder_outputs,noun_embed,mode=self.nn_attention_mode)
+
+        
         sim_feature = self.Sim_GCN(encoder_outputs, encoder_outputs, attention_mask)
 
         mix_feature = self.fusion(torch.cat([syn_feature, sim_feature], dim=-1))
+        # print("sim", sim_feature, sim_feature.shape)
+        # print("syn", syn_feature, syn_feature.shape)
+        # print("mix", mix_feature, mix_feature.shape)
 
         predict = self.projection(mix_feature)
+
+        # predict = BartState(
+        #     encoder_outputs,
+        #     encoder_mask,
+        #     input_ids[:,51:],  #the text features start from index 38, the front are image features.
+        #     first,
+        #     src_embed_outputs,
+        #     mix_feature
+        # )
         return predict, syn_feature, sim_feature
 
 
@@ -364,16 +391,27 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
                 labels=labels)
 
         if labels != None:
-            log_likelihood = self.crf(logits, labels, mask=attention_mask.byte(), reduction='sum')
+           log_likelihood = self.crf(logits[:, 51:, :], labels, mask=attention_mask[:, 51:].byte(), reduction='sum')
 
-            loss_crf = -log_likelihood
-            loss_con = self.contrastive_loss(syn_feature, sim_feature)
+           loss_crf = -log_likelihood
+        #    loss_con = self.contrastive_loss(syn_feature, sim_feature)
 
-            loss = self.w_l * loss_crf + (1-self.w_l) *loss_con
-            return loss
+        #    loss = self.w_l * loss_crf + (1-self.w_l) *loss_con
+           loss = loss_crf
+           return loss
         else:
-            return self.crf.decode(logits, mask=attention_mask.byte())
-            
+           return self.crf.decode(logits[:, 51:, :], mask=attention_mask[:, 51:].byte())
+
+        # spans, span_mask = [
+        #     aesc_infos['labels'].to(input_ids.device),
+        #     aesc_infos['masks'].to(input_ids.device)
+        # ]
+
+        # logits = self.decoder(spans, logits, sentiment_value)
+        # # logits = self.decoder(spans, state)
+
+        # loss = self.span_loss_fct(spans[:, 1:], logits, span_mask[:, 1:])
+        return loss  
 
 
 class BartState(State):

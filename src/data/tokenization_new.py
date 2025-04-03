@@ -508,7 +508,7 @@ class ConditionTokenizer:
             noun_mask = torch.cat((torch.zeros(image_ids.size(), dtype=torch.bool), noun_mask), 1)
             if aspects != None:
                 aspect_masks = torch.cat((torch.zeros(image_ids.size(), dtype=torch.bool), aspect_masks), 1)
-                labels = torch.cat((torch.zeros(image_ids.size(), dtype=torch.bool), labels), 1)
+                # labels = torch.cat((torch.zeros(image_ids.size(), dtype=torch.bool), labels), 1)
             #print(input_ids.shape, aspect_mask.shape)
             # assert attention_mask.shape==noun_mask.shape
         else:

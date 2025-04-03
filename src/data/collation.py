@@ -58,8 +58,8 @@ class Collator:
         batch = [entry for entry in batch if entry is not None]
         image_features = [x['img_feat'] for x in batch]
 
-        #img_num = [self._max_img_num]*len(image_features)
-        img_num = None
+        img_num = [self._max_img_num]*len(image_features)
+        # img_num = None
 
         target = [x['sentence'] for x in batch]
         sentence = list(target)
@@ -88,6 +88,9 @@ class Collator:
 
         output['task'] = 'AESC'
         output['AESC'] = encoded_conditions['labels']
+        # output['AESC'] = self._tokenizer.encode_aesc(
+        #                                             target, [x['aesc_spans'] for x in batch],  # target = [x['sentence'] for x in batch]
+        #                                             self._max_span_len)
             
 
         output['image_id'] = [x['image_id'] for x in batch]

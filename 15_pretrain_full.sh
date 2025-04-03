@@ -17,7 +17,7 @@ do
           --warmup 0.1 \
           --seed 57 \
           --rank 2 \
-          --trc_pretrain_file TRC_ckpt/pytorch_model.bin \
+          --trc_pretrain_file ./src/AoM-ckpt/Twitter2015/pytorch_model.bin \
           --nn_attention_on \
           --nn_attention_mode 0\
           --gcn_on \
@@ -25,5 +25,9 @@ do
           --gpu_num 2\
           --gcn_layer_num 2\
           --text_encoder bart\
-          --aesc_enabled true
+          --aesc_enabled true\
+          --img_num 49\
+          --trc_on\
+          --checkpoint '/Users/admin/Downloads/JMABSA/train15/2025-04-03-10-13-50'\
+          --no_train true
 done

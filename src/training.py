@@ -50,17 +50,18 @@ def fine_tune(epochs,
             global_step+=1
 
             aesc_infos = batch['AESC']
+            # aesc_infos = {key: value for key, value in batch['AESC'].items()}
 
-            #with torch.no_grad():
-            #    imgs_f=[x.numpy().tolist() for x in batch['image_features']]
-            #    imgs_f=torch.tensor(imgs_f).to(device)
-            #    imgs_f, img_mean, img_att = img_encoder(imgs_f)
-            #    img_att=img_att.view(-1, 2048, args.img_num).permute(0, 2, 1)
+            with torch.no_grad():
+               imgs_f=[x.numpy().tolist() for x in batch['image_features']]
+               imgs_f=torch.tensor(imgs_f).to(device)
+               imgs_f, img_mean, img_att = img_encoder(imgs_f)
+               img_att=img_att.view(-1, 2048, args.img_num).permute(0, 2, 1)
             with autocast(enabled=args.amp):
                 outputs =  model.forward(
                     input_ids=batch['input_ids'].to(device),
-                    #image_features=list(map(lambda x: x.to(device), img_att)),
-                    image_features=None,
+                    image_features=list(map(lambda x: x.to(device), img_att)),
+                    # image_features=None,
                     sentiment_value=batch['sentiment_value'].to(device) if batch['sentiment_value'] is not None else None,
                     noun_mask=batch['noun_mask'].to(device),
                     attention_mask=batch['attention_mask'].to(device),
@@ -69,6 +70,7 @@ def fine_tune(epochs,
                     aesc_infos=aesc_infos,
                     aspect_mask=batch['aspect_mask'].to(device),
                     labels=aesc_infos.to(device))
+                    # labels=aesc_infos)
                 
                 loss = outputs
 
@@ -106,11 +108,13 @@ def fine_tune(epochs,
                 best_dev_res = res_dev
                 save_flag = True
 
+        # model.seq2seq_model.RDGNN.reward_and_punishment(res_dev['aesc_f'])
         model.RDGNN.reward_and_punishment(res_dev['aesc_f'])
 
         if args.is_check == 1 and save_flag:
             current_checkpoint_path = os.path.join(args.checkpoint_path,
                                                     args.check_info)
+            # model.seq2seq_model.save_pretrained(current_checkpoint_path)
             model.save_pretrained(current_checkpoint_path)
             # save_img_encoder(args,img_encoder)
             # torch.save(img_encoder, os.path.join(args.checkpoint_path, 'resnet152.pt'))

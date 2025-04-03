@@ -68,10 +68,11 @@ class SequenceGeneratorModel(nn.Module):
                 sentiment_value,
                 noun_mask,
                 attention_mask=None,
-                #dependency_matrix=None,
                 syn_dep_adj_matrix=None,
                 syn_dis_adj_matrix=None,
                 aesc_infos=None,
+                aspect_mask=None,
+                labels=None,
                 first=None):
         """
         透传调用seq2seq_model的forward
@@ -83,14 +84,15 @@ class SequenceGeneratorModel(nn.Module):
         :return:
         """
         return self.seq2seq_model(input_ids=input_ids,
-                                  image_features=image_features,
-                                  sentiment_value=sentiment_value,
-                                  noun_mask=noun_mask,
-                                  attention_mask=attention_mask,
-                                  #dependency_matrix=dependency_matrix,
-                                  syn_dep_adj_matrix=syn_dep_adj_matrix,
-                                  syn_dis_adj_matrix=syn_dis_adj_matrix,
-                                  aesc_infos=aesc_infos)
+                                image_features=image_features,
+                                noun_mask=noun_mask,
+                                attention_mask=attention_mask,
+                                syn_dep_adj_matrix=syn_dep_adj_matrix,
+                                syn_dis_adj_matrix=syn_dis_adj_matrix,
+                                sentiment_value=sentiment_value,
+                                aspect_mask=aspect_mask,
+                                labels=labels,
+                                aesc_infos=aesc_infos)
 
     def predict(self,
                 input_ids,
@@ -98,10 +100,11 @@ class SequenceGeneratorModel(nn.Module):
                 sentiment_value,
                 noun_mask,
                 attention_mask=None,
-                #dependency_matrix=None,
                 syn_dep_adj_matrix=None,
                 syn_dis_adj_matrix=None,
-                aesc_infos=None):
+                aesc_infos=None,
+                aspect_mask=None,
+                labels=None):
         """
         给定source的内容，输出generate的内容
 
@@ -109,8 +112,15 @@ class SequenceGeneratorModel(nn.Module):
         :param torch.LongTensor src_seq_len: bsz
         :return:
         """
-        state, syn_feature, sim_feature = self.seq2seq_model.prepare_state(input_ids, image_features, noun_mask,
-                                                 attention_mask, syn_dep_adj_matrix, syn_dis_adj_matrix, sentiment_value)
+        state, syn_feature, sim_feature = self.seq2seq_model.prepare_state(input_ids=input_ids,
+                                                                            image_features=image_features,
+                                                                            noun_mask=noun_mask,
+                                                                            attention_mask=attention_mask,
+                                                                            syn_dep_adj_matrix=syn_dep_adj_matrix,
+                                                                            syn_dis_adj_matrix=syn_dis_adj_matrix,
+                                                                            sentiment_value=sentiment_value,
+                                                                            aspect_mask=aspect_mask,
+                                                                            labels=labels)
         # state.encoder_output=att_features
         # state.encoder_mask=noun_mask
         tgt_tokens = aesc_infos['labels'].to(input_ids.device)
