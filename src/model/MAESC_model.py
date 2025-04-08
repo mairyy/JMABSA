@@ -157,7 +157,7 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         #self.gat_linear = nn.Linear(768, 768)
         #self.pos_embedding = POS_embedding(32, 1)
 
-        #self.senti_value_linear=nn.Linear(1,768)
+        self.senti_value_linear=nn.Linear(1,768)
         #self.dep_linear1=nn.Linear(768,768)
         #self.dep_linear2=nn.Linear(768,768)
         #self.dep_att_linear=nn.Linear(768*2,1)
@@ -225,8 +225,13 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         noun_embed=self.get_noun_embed(encoder_outputs,noun_mask)
         encoder_outputs=self.noun_attention(encoder_outputs,noun_embed,mode=self.nn_attention_mode)
 
-        
-        sim_feature = self.Sim_GCN(encoder_outputs, encoder_outputs, attention_mask)
+        #if self.sentinet_on:
+        #    sentiment_value=nn.ZeroPad2d(padding=(51,0,0,0))(sentiment_value)
+        #    sentiment_value =sentiment_value.unsqueeze(-1)
+        #    sentiment_feature=self.senti_value_linear(sentiment_value)
+        #    encoder_outputs = encoder_outputs + sentiment_feature
+
+        sim_feature = self.Sim_GCN(encoder_outputs, encoder_outputs, attention_mask, noun_mask)
 
         mix_feature = self.fusion(torch.cat([syn_feature, sim_feature], dim=-1))
         # print("sim", sim_feature, sim_feature.shape)

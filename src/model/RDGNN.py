@@ -129,12 +129,34 @@ class Sim_GCN(nn.Module):
         self.gcn_drop = nn.Dropout(args.gcn_dropout)
         self.linear = nn.Linear(self.gcn_hidden_dim, self.gcn_output_dim)
 
-    def forward(self, input_1, input_2, attention_mask):
-        embeddings_norm = F.normalize(input_2, p=2, dim=-1)
-        adj_matrix = torch.matmul(embeddings_norm, embeddings_norm.transpose(1, 2))
-        #print(adj_matrix, adj_matrix.shape, input_emb.shape)
-        expanded_mask = attention_mask.unsqueeze(-1)
-        adj_matrix = adj_matrix * expanded_mask * expanded_mask.transpose(1, 2)
+    def forward(self, input_1, input_2, attention_mask, noun_mask=None):
+        new_dependency_matrix=torch.zeros([input_2.shape[0],input_2.shape[1],input_2.shape[1]],dtype=torch.float).to(input_2.device)
+        img_feature=input_2[:,:51,:]
+        text_feature=input_2[:,51:,:]
+
+        img_feature_extend=img_feature.unsqueeze(2).repeat(1,1,text_feature.shape[1],1)
+        text_feature_extend=text_feature.unsqueeze(1).repeat(1,img_feature.shape[1],1,1)
+        sim=torch.cosine_similarity(img_feature_extend,text_feature_extend,dim=-1)
+
+        # 图像只与名词挂钩
+        noun_mask=noun_mask[:,51:].unsqueeze(1).repeat(1,sim.shape[1],1)
+        sim=sim*noun_mask
+        new_dependency_matrix[:,:51,51:]=sim
+        new_dependency_matrix[:,51:,:51]=torch.transpose(sim,1,2)
+
+        # 以token之间的相似度作为依赖值
+        text_feature_extend1 = text_feature.unsqueeze(1).repeat(1, text_feature.shape[1], 1, 1)
+        text_feature_extend2 = text_feature.unsqueeze(2).repeat(1, 1, text_feature.shape[1], 1)
+        text_sim = torch.cosine_similarity(text_feature_extend1, text_feature_extend2, dim=-1)
+        new_dependency_matrix[:, 51:, 51:] = text_sim
+        adj_matrix = new_dependency_matrix
+
+        # embeddings_norm = F.normalize(input_2, p=2, dim=-1)
+        # adj_matrix = torch.matmul(embeddings_norm, embeddings_norm.transpose(1, 2))
+        # # adj_matrix = torch.cosine_similarity(embeddings_norm, embeddings_norm, dim=-1)
+        # #print(adj_matrix, adj_matrix.shape, input_emb.shape)
+        # expanded_mask = attention_mask.unsqueeze(-1)
+        # adj_matrix = adj_matrix * expanded_mask * expanded_mask.transpose(1, 2)
 
         gcn_output = input_1
         for layer_id in range(self.gcn_layer_num):
