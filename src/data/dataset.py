@@ -31,8 +31,8 @@ class Twitter_Dataset(data.Dataset):
         else:
             raise RuntimeError("split type is not exist!!!")
         
-        # if args.aesc_enabled == False:
-        #     self.data_set = self.get_dataset(self.data_set)
+        if args.task == 'SC':
+            self.data_set = self.get_dataset(self.data_set)
 
         crop_size = 224
         self.transform = transforms.Compose([
@@ -117,11 +117,23 @@ class Twitter_Dataset(data.Dataset):
         output['img_feat'] = img_feature
 
         output['sentence'] = ' '.join(data['words'])
+        # output['sentence'] = 'The sentence "' + ' '.join(data['words']) + '" has the aspect "' + ' '.join(data['aspects']['term']) + '"'
         # add
+        # print(output['sentence'])
         output['noun']=data['noun']
         output['image_id'] = img_id
 
-        output['labels'] = self.get_label(data['aspects'])
+        if not self.args.aesc_enabled:
+            if self.args.task == 'AESC':
+                output['labels'] = self.get_label(data['aspects'])
+            elif self.args.task == 'SC':
+                output['labels'] = self.args.label_dict[data['aspects']['polarity']]
+                output['aspects'] = data['aspects']['term']
+        else:
+            aesc_spans = self.get_aesc_spans(data['aspects'])
+            output['aesc_spans'] = aesc_spans
+            gt = self.get_gt_aspect_senti(data['aspects'])
+            output['gt'] = gt
         output['syn_dep_adj'] = [(d[0], d[1], d[2]) for d in data['syn_dep_adj']]
         output['syn_dis_adj'] = [(d[0], d[1], d[2]) for d in data['syn_dis_adj']]
 

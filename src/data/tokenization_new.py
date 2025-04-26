@@ -399,11 +399,11 @@ class ConditionTokenizer:
                         if word in aspect:
                             aspect_mask += [1] * len(bpes)
                             len_term -= 1
-                            if len_term == 0:
-                                label += [label_dict.get(polarity[i])] 
-                                label += [4] * (len(bpes) - 1)
-                            else:
-                                label += [label_dict.get(polarity[i])] * len(bpes)
+                            #if len_term == 0:
+                            #    label += [label_dict.get(polarity[i])] 
+                            #    label += [4] * (len(bpes) - 1)
+                            #else:
+                            #    label += [label_dict.get(polarity[i])] * len(bpes)
                         else:
                             aspect_mask += [0] * len(bpes)
                             label += [0] * len(bpes)
@@ -490,8 +490,12 @@ class ConditionTokenizer:
 
             #input_sentence_tokens, input_sentence_mask, noun_mask, dependency_matrix = self.pad_tokens(
             #    input_sentence_tokens, noun_masks, dependency_matrix)
-            input_sentence_tokens, input_sentence_mask, noun_mask, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks, labels = self.pad_tokens(
-                input_sentence_tokens, noun_masks, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks, labels)
+            if aspects == None:
+                input_sentence_tokens, input_sentence_mask, noun_mask, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks, labels = self.pad_tokens(
+                    input_sentence_tokens, noun_masks, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks, labels)
+            else:
+                input_sentence_tokens, input_sentence_mask, noun_mask, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks, labels = self.pad_tokens(
+                    input_sentence_tokens, noun_masks, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks)
 
             # 填充情感值
             if self.sentinet_on:
@@ -515,8 +519,12 @@ class ConditionTokenizer:
             #input_sentence_tokens, input_sentence_mask, noun_mask, dependency_matrix = self.pad_tokens(
             #    input_sentence_tokens, noun_masks, dependency_matrix)
             
-            input_sentence_tokens, input_sentence_mask, noun_mask, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks, labels = self.pad_tokens(
-                input_sentence_tokens, noun_masks, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks, labels)
+            if aspects == None:
+                input_sentence_tokens, input_sentence_mask, noun_mask, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks, labels = self.pad_tokens(
+                    input_sentence_tokens, noun_masks, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks, labels)
+            else:
+                input_sentence_tokens, input_sentence_mask, noun_mask, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks, labels = self.pad_tokens(
+                    input_sentence_tokens, noun_masks, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks)
             
             input_ids = input_sentence_tokens
             attention_mask = input_sentence_mask

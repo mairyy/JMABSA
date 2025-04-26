@@ -1,6 +1,6 @@
 from typing import Optional, Tuple
-#from fastNLP.modules import Seq2SeqEncoder, Seq2SeqDecoder, State
-from fastNLP.modules.torch import Seq2SeqEncoder, Seq2SeqDecoder, State
+from fastNLP.modules import Seq2SeqEncoder, Seq2SeqDecoder, State
+# from fastNLP.modules.torch import Seq2SeqEncoder, Seq2SeqDecoder, State
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -41,6 +41,19 @@ class CustomDecoder(nn.Module):
         
         x = F.softmax(x, dim=2)
         return x
+
+class GateModule(nn.Module):
+    def __init__(self, args):
+        super(GateModule, self).__init__()
+        self.linear_layer = nn.Linear(768 * 2, 768)
+    
+    def forward(self, syn_feature, sim_feature):
+        cat_feature = torch.cat((syn_feature, sim_feature), -1)
+        gate = F.softmax(self.linear_layer(cat_feature), dim=-1)
+        gate = gate[:, :, 0].unsqueeze(2).repeat(1, 1, syn_feature.size(-1))
+        mix_feature = gate * syn_feature + (1 - gate) * sim_feature
+        
+        return mix_feature
 
 class MultiModalBartModel_AESC(PretrainedBartModel):
     def build_model(self,
@@ -162,17 +175,24 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         #self.dep_linear2=nn.Linear(768,768)
         #self.dep_att_linear=nn.Linear(768*2,1)
 
-        self.RDGNN = RDGNN(args, 1.8)
+        self.RDGNN = RDGNN(args, 1.1)
         self.Sim_GCN = Sim_GCN(args, 768, 768)
-        self.fusion = nn.Linear(768*2, 768)
+        #self.fusion = nn.Linear(768*2, 768)
+        self.fusion = GateModule(args)
         self.aesc_enabled = args.aesc_enabled
-        self.num_labels = len(args.label_dict)
+        if not self.aesc_enabled:
+            self.num_labels = len(args.label_dict)
         self.crf_on = args.crf_on
         self.sc_only = args.sc_only
         self.w_l = args.w_l
+        self.task = args.task
 
-        self.projection = nn.Linear(768, self.num_labels)
-        self.crf = CRF(num_tags=self.num_labels, batch_first=True)
+        if args.task == 'AESC':
+            if not self.aesc_enabled:
+                self.projection = nn.Linear(768, self.num_labels)
+                self.crf = CRF(num_tags=self.num_labels, batch_first=True)
+        elif args.task == 'SC':
+            self.classifier = nn.Sequential(nn.Linear(768, int(768/2)), nn.ReLU(), nn.Linear(int(768/2), self.num_labels))
 
         # self.aesc_pred = CustomDecoder(768, 512, 256, self.num_labels)
         
@@ -220,7 +240,7 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         encoder_mask = attention_mask
         src_embed_outputs = hidden_states[0]
 
-        syn_feature = self.RDGNN(encoder_outputs, syn_dep_adj_matrix, syn_dis_adj_matrix, True, False)
+        syn_feature = self.RDGNN(encoder_outputs, syn_dep_adj_matrix, syn_dis_adj_matrix, False, False)
 
         noun_embed=self.get_noun_embed(encoder_outputs,noun_mask)
         encoder_outputs=self.noun_attention(encoder_outputs,noun_embed,mode=self.nn_attention_mode)
@@ -233,22 +253,33 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
 
         sim_feature = self.Sim_GCN(encoder_outputs, encoder_outputs, attention_mask, noun_mask)
 
-        mix_feature = self.fusion(torch.cat([syn_feature, sim_feature], dim=-1))
+        #mix_feature = self.fusion(torch.cat([syn_feature, sim_feature], dim=-1))
+        mix_feature = self.fusion(syn_feature, sim_feature)
         # print("sim", sim_feature, sim_feature.shape)
         # print("syn", syn_feature, syn_feature.shape)
         # print("mix", mix_feature, mix_feature.shape)
 
-        predict = self.projection(mix_feature)
+        if self.task == 'AESC':
+        #     predict = self.projection(mix_feature)
 
-        # predict = BartState(
-        #     encoder_outputs,
-        #     encoder_mask,
-        #     input_ids[:,51:],  #the text features start from index 38, the front are image features.
-        #     first,
-        #     src_embed_outputs,
-        #     mix_feature
-        # )
-        return predict, syn_feature, sim_feature
+            predict = BartState(
+                encoder_outputs,
+                encoder_mask,
+                input_ids[:,51:],  #the text features start from index 38, the front are image features.
+                first,
+                src_embed_outputs,
+                mix_feature
+            )
+            return predict, syn_feature, sim_feature
+        elif self.task == 'SC':
+            # asp_wn = aspect_mask.sum(dim=1).unsqueeze(-1)                        
+            # p = len(aspect_mask)
+            # b = len(aspect_mask[0])
+            # mask = aspect_mask.unsqueeze(-1).repeat(1,1,768)    
+            # outputs = (mix_feature*mask).sum(dim=1) / asp_wn 
+            outputs = mix_feature.mean(dim=1)
+            #print(outputs, mask, asp_wn, aspect_mask)
+            return outputs, syn_feature, sim_feature 
 
 
     def noun_attention(self,encoder_outputs,noun_embed,mode='multi-head'):
@@ -385,38 +416,55 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             output_attentions=None,
             output_hidden_states=None,
     ):
-        logits, syn_feature, sim_feature = self.prepare_state(input_ids=input_ids,
-                image_features=image_features,
-                noun_mask=noun_mask,
-                attention_mask=attention_mask,
-                syn_dep_adj_matrix=syn_dep_adj_matrix,
-                syn_dis_adj_matrix=syn_dis_adj_matrix,
-                sentiment_value=sentiment_value,
-                aspect_mask=aspect_mask,
-                labels=labels)
+        if self.task == 'AESC':
+            logits, syn_feature, sim_feature = self.prepare_state(input_ids=input_ids,
+                    image_features=image_features,
+                    noun_mask=noun_mask,
+                    attention_mask=attention_mask,
+                    syn_dep_adj_matrix=syn_dep_adj_matrix,
+                    syn_dis_adj_matrix=syn_dis_adj_matrix,
+                    sentiment_value=sentiment_value,
+                    aspect_mask=aspect_mask,
+                    labels=labels)
 
-        if labels != None:
-           log_likelihood = self.crf(logits[:, 51:, :], labels, mask=attention_mask[:, 51:].byte(), reduction='sum')
+            # if labels != None:
+            #     log_likelihood = self.crf(logits[:, 51:, :], labels, mask=attention_mask[:, 51:].byte(), reduction='sum')
 
-           loss_crf = -log_likelihood
-        #    loss_con = self.contrastive_loss(syn_feature, sim_feature)
+            #     loss_crf = -log_likelihood
+            #     loss_con = self.contrastive_loss(syn_feature[:, 51:, :], sim_feature[:, 51:, :])
 
-        #    loss = self.w_l * loss_crf + (1-self.w_l) *loss_con
-           loss = loss_crf
-           return loss
-        else:
-           return self.crf.decode(logits[:, 51:, :], mask=attention_mask[:, 51:].byte())
+            #     # print(loss_crf, loss_con, 1-self.w_l)
+            #     loss = self.w_l * loss_crf + (1-self.w_l) * loss_con
+            #     # loss = loss_crf
+            #     return loss
+            # else:
+            #     return self.crf.decode(logits[:, 51:, :], mask=attention_mask[:, 51:].byte())
 
-        # spans, span_mask = [
-        #     aesc_infos['labels'].to(input_ids.device),
-        #     aesc_infos['masks'].to(input_ids.device)
-        # ]
+            spans, span_mask = [
+                aesc_infos['labels'].to(input_ids.device),
+                aesc_infos['masks'].to(input_ids.device)
+            ]
 
-        # logits = self.decoder(spans, logits, sentiment_value)
-        # # logits = self.decoder(spans, state)
+            logits = self.decoder(spans, logits, sentiment_value)
+            # logits = self.decoder(spans, state)
+            print(spans, spans.shape, logits, logits.shape, span_mask, span_mask.shape)
+            loss = self.span_loss_fct(spans[:, 1:], logits, span_mask[:, 1:])
+            return loss
 
-        # loss = self.span_loss_fct(spans[:, 1:], logits, span_mask[:, 1:])
-        return loss  
+        elif self.task == 'SC':
+            logits, syn_feature, sim_feature = self.prepare_state(input_ids=input_ids,
+                    image_features=image_features,
+                    noun_mask=noun_mask,
+                    attention_mask=attention_mask,
+                    syn_dep_adj_matrix=syn_dep_adj_matrix,
+                    syn_dis_adj_matrix=syn_dis_adj_matrix,
+                    sentiment_value=sentiment_value,
+                    aspect_mask=aspect_mask,
+                    labels=labels)
+            
+            predict = self.classifier(logits)
+            # print(predict.shape)
+            return predict  
 
 
 class BartState(State):
@@ -500,3 +548,14 @@ class Attention(nn.Module) :
         new_size = context.size()[ : -2] + (self.all_head_size , )
         context = context.view(*new_size)
         return context
+    
+class AttentionPooling(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.attn = nn.Linear(dim, 1)
+
+    def forward(self, x):  # x: [B, S, D]
+        weights = self.attn(x)              # [B, S, 1]
+        weights = torch.softmax(weights, dim=1)
+        output = (x * weights).sum(dim=1)   # [B, D]
+        return output

@@ -49,8 +49,8 @@ def fine_tune(epochs,
             # Forward pass
             global_step+=1
 
-            aesc_infos = batch['AESC']
-            # aesc_infos = {key: value for key, value in batch['AESC'].items()}
+            # aesc_infos = batch[args.task]
+            aesc_infos = {key: value for key, value in batch['AESC'].items()}
 
             with torch.no_grad():
                imgs_f=[x.numpy().tolist() for x in batch['image_features']]
@@ -68,11 +68,15 @@ def fine_tune(epochs,
                     syn_dep_adj_matrix=batch['syn_dep_matrix'].to(device),
                     syn_dis_adj_matrix=batch['syn_dis_matrix'].to(device),
                     aesc_infos=aesc_infos,
-                    aspect_mask=batch['aspect_mask'].to(device),
-                    labels=aesc_infos.to(device))
-                    # labels=aesc_infos)
+                    aspect_mask=batch['aspect_mask'],
+                    # labels=aesc_infos.to(device))
+                    labels=aesc_infos)
                 
-                loss = outputs
+                if args.task == 'AESC':
+                    loss = outputs
+                elif args.task == 'SC':
+                    #print(outputs, outputs.shape, aesc_infos)
+                    loss = criterion(outputs, aesc_infos.to(device))
 
                 print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}'.format(
                     epoch + 1, args.epochs, epoch*len(train_loader) + i + 1, total_step, loss.item()))
@@ -90,35 +94,50 @@ def fine_tune(epochs,
 
             optimizer.step()
 
-
-        res_dev = eval_utils.eval(args, model,img_encoder ,dev_loader, metric, device)
-        logger.info('DEV  aesc_p:{} aesc_r:{} aesc_f:{}'.format(
-            res_dev['aesc_pre'], res_dev['aesc_rec'], res_dev['aesc_f']))
-        logger.info('DEV  ae_p:{} ae_r:{} ae_f:{}'.format(
-            res_dev['ae_pre'], res_dev['ae_rec'], res_dev['ae_f']))
-        logger.info('DEV  sc_acc:{} sc_r:{} sc_f:{}'.format(
-            res_dev['sc_acc'], res_dev['sc_rec'], res_dev['sc_f']))
+        if args.task == 'AESC':
+            res_dev = eval_utils.eval(args, model,img_encoder ,dev_loader, metric, device)
+            logger.info('DEV  aesc_p:{} aesc_r:{} aesc_f:{}'.format(
+                res_dev['aesc_pre'], res_dev['aesc_rec'], res_dev['aesc_f']))
+            logger.info('DEV  ae_p:{} ae_r:{} ae_f:{}'.format(
+                res_dev['ae_pre'], res_dev['ae_rec'], res_dev['ae_f']))
+            logger.info('DEV  sc_acc:{} sc_r:{} sc_f_micro:{} sc_f_macro:{}'.format(
+                res_dev['sc_acc'], res_dev['sc_rec'],
+                res_dev['sc_f_mi'], res_dev['sc_f_ma']))
+        elif args.task == 'SC':
+            res_dev = eval_utils.eval(args, model,img_encoder ,dev_loader, metric, device)
+            logger.info('DEV  sc_acc:{} sc_f_micro:{} sc_f_macro:{}'.format(
+                res_dev['sc_acc'], res_dev['sc_f_mi'], res_dev['sc_f_ma']))
+        #logger.info('RL_K: {}'.format(model.RDGNN.RL_K))
         
         save_flag = False
         if best_dev_res is None:
             best_dev_res = res_dev
             save_flag = True
         else:
-            if best_dev_res['aesc_f'] < res_dev['aesc_f']:
-                best_dev_res = res_dev
-                save_flag = True
+            if args.task == 'AESC':
+                if best_dev_res['aesc_f'] < res_dev['aesc_f']:
+                    best_dev_res = res_dev
+                    save_flag = True
+            elif args.task == 'SC':
+                if best_dev_res['sc_acc'] < res_dev['sc_acc']:
+                    best_dev_res = res_dev
+                    save_flag = True
 
         # model.seq2seq_model.RDGNN.reward_and_punishment(res_dev['aesc_f'])
-        model.RDGNN.reward_and_punishment(res_dev['aesc_f'])
+        #if args.task == 'AESC':
+        #    model.RDGNN.reward_and_punishment(res_dev['aesc_f'])
+        #elif args.task == 'SC':
+        #    model.RDGNN.reward_and_punishment(res_dev['sc_acc'])
 
         if args.is_check == 1 and save_flag:
             current_checkpoint_path = os.path.join(args.checkpoint_path,
                                                     args.check_info)
-            # model.seq2seq_model.save_pretrained(current_checkpoint_path)
-            model.save_pretrained(current_checkpoint_path)
+            model.seq2seq_model.save_pretrained(current_checkpoint_path)
+            # model.save_pretrained(current_checkpoint_path)
             # save_img_encoder(args,img_encoder)
             # torch.save(img_encoder, os.path.join(args.checkpoint_path, 'resnet152.pt'))
             torch.save(model,os.path.join(args.checkpoint_path,'AoM.pt'))
+            #logger.info('RL_K log:{}'.format(model.RDGNN.RL_K_log))
             logger.info('save model to {} !!!!!!!!!!!'.format(current_checkpoint_path))
             best_model = model
         epoch += 1
@@ -128,26 +147,32 @@ def fine_tune(epochs,
 
     res_test = eval_utils.eval(args, best_model, img_encoder, test_loader, metric, device)
 
-    logger.info('BEST DEV aesc_p:{} aesc_r:{} aesc_f:{}'.format(
-        best_dev_res['aesc_pre'], best_dev_res['aesc_rec'],
-        best_dev_res['aesc_f']))
-    logger.info('BEST DEV  ae_p:{} ae_r:{} ae_f:{}'.format(
-        best_dev_res['ae_pre'], best_dev_res['ae_rec'],
-        best_dev_res['ae_f']))
-    logger.info('BEST DEV  sc_acc:{} sc_r:{} sc_f:{}'.format(
-        best_dev_res['sc_acc'], best_dev_res['sc_rec'],
-        best_dev_res['sc_f']))
-    
-    logger.info('TEST aesc_p:{} aesc_r:{} aesc_f:{}'.format(
-        res_test['aesc_pre'], res_test['aesc_rec'],
-        res_test['aesc_f']))
-    logger.info('TEST  ae_p:{} ae_r:{} ae_f:{}'.format(
-        res_test['ae_pre'], res_test['ae_rec'],
-        res_test['ae_f']))
-    logger.info('TEST  sc_acc:{} sc_r:{} sc_f:{}'.format(
-        res_test['sc_acc'], res_test['sc_rec'],
-        res_test['sc_f']))
-
+    if args.task == 'AESC':
+        logger.info('BEST DEV aesc_p:{} aesc_r:{} aesc_f:{}'.format(
+            best_dev_res['aesc_pre'], best_dev_res['aesc_rec'],
+            best_dev_res['aesc_f']))
+        logger.info('BEST DEV  ae_p:{} ae_r:{} ae_f:{}'.format(
+            best_dev_res['ae_pre'], best_dev_res['ae_rec'],
+            best_dev_res['ae_f']))
+        logger.info('BEST DEV  sc_acc:{} sc_r:{} sc_f_micro:{} sc_f_macro:{}'.format(
+            best_dev_res['sc_acc'], best_dev_res['sc_rec'],
+            best_dev_res['sc_f_mi'], best_dev_res['sc_f_ma']))
+        
+        logger.info('TEST aesc_p:{} aesc_r:{} aesc_f:{}'.format(
+            res_test['aesc_pre'], res_test['aesc_rec'],
+            res_test['aesc_f']))
+        logger.info('TEST  ae_p:{} ae_r:{} ae_f:{}'.format(
+            res_test['ae_pre'], res_test['ae_rec'],
+            res_test['ae_f']))
+        logger.info('TEST  sc_acc:{} sc_r:{} sc_f_micro:{} sc_f_macro:{}'.format(
+            res_test['sc_acc'], res_test['sc_rec'],
+            res_test['sc_f_mi'], res_test['sc_f_ma']))
+    elif args.task == 'SC':
+        logger.info('BEST DEV  sc_acc:{} sc_f_micro:{} sc_f_macro:{}'.format(
+            best_dev_res['sc_acc'], best_dev_res['sc_f_mi'], best_dev_res['sc_f_ma']))
+        
+        logger.info('TEST  sc_acc:{} sc_f_micro:{} sc_f_macro:{}'.format(
+            res_test['sc_acc'], res_test['sc_f_mi'], res_test['sc_f_ma']))
     
 
 

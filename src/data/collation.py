@@ -8,7 +8,7 @@ class Collator:
     The collator for all types of dataset.
     Remember to add the corresponding collation code after adding a new type of task.
     """
-    def __init__(self,
+    def __init__(self, args,
                  tokenizer,
                  has_label=True,
                  aesc_enabled=False,
@@ -27,6 +27,7 @@ class Collator:
         :param mlm_probability: float, probability to mask the tokens
         :param mrm_probability: float, probability to mask the regions
         """
+        self.args = args
         self._tokenizer = tokenizer
         self._has_label = has_label
         self._aesc_enabled = aesc_enabled
@@ -66,11 +67,19 @@ class Collator:
         syn_dis_adj = [x['syn_dis_adj'] for x in batch]
         syn_dep_adj = [x['syn_dep_adj'] for x in batch]
 
-        labels = [x['labels'] for x in batch]
+        if not self._aesc_enabled:
+            labels = [x['labels'] for x in batch]
+        else:
+            labels = None
 
-        encoded_conditions = self._tokenizer.encode_condition(
-            img_num=img_num, sentence=sentence, text_only=self.text_only, syn_dis_adj=syn_dis_adj, syn_dep_adj=syn_dep_adj, _labels=labels)
-
+        if self.args.task == 'AESC':
+            encoded_conditions = self._tokenizer.encode_condition(
+                img_num=img_num, sentence=sentence, text_only=self.text_only, syn_dis_adj=syn_dis_adj, syn_dep_adj=syn_dep_adj, _labels=labels)
+        elif self.args.task == 'SC':
+            aspects = [x['aspects'] for x in batch]
+            encoded_conditions = self._tokenizer.encode_condition(
+                img_num=img_num, sentence=sentence, text_only=self.text_only, syn_dis_adj=syn_dis_adj, syn_dep_adj=syn_dep_adj, aspects=aspects)
+            
         input_ids = encoded_conditions['input_ids']
         output = {}
 
@@ -84,10 +93,22 @@ class Collator:
         output['syn_dep_matrix'] = encoded_conditions['syn_dep_adj_matrix']
         output['syn_dis_matrix'] = encoded_conditions['syn_dis_adj_matrix']
 
-        output['aspect_mask'] = encoded_conditions['aspect_mask']
+        if not self._aesc_enabled:
+            output['aspect_mask'] = encoded_conditions['aspect_mask']
+        else:
+            output['aspect_mask'] = None
 
-        output['task'] = 'AESC'
-        output['AESC'] = encoded_conditions['labels']
+        if self.args.task == 'AESC':
+            output['task'] = 'AESC'
+            if self._aesc_enabled:
+                output['AESC'] = self._tokenizer.encode_aesc(
+                    target, [x['aesc_spans'] for x in batch],  # target = [x['sentence'] for x in batch]
+                    self._max_span_len)
+            else:
+                output['AESC'] = encoded_conditions['labels']
+        elif self.args.task == 'SC':
+            output['task'] = 'SC'
+            output['SC'] = torch.tensor(labels)
         # output['AESC'] = self._tokenizer.encode_aesc(
         #                                             target, [x['aesc_spans'] for x in batch],  # target = [x['sentence'] for x in batch]
         #                                             self._max_span_len)

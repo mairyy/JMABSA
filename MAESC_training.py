@@ -67,7 +67,7 @@ def main(rank, args):
     else:
         #device = torch.device("cuda:{}".format(rank))
         #map_location = {'cuda:%d' % 0: 'cuda:%d' % rank}
-        device = torch.device('mps')
+        device = torch.device('cpu')
         map_location = device
     args.device=device
     infos = json.load(open(args.dataset[0][1], 'r'))
@@ -78,7 +78,13 @@ def main(rank, args):
         tokenizer = ConditionTokenizer(args=args)
     else:
         tokenizer = ConditionTokenizer(args=args, pretrained_model_name='bert-base-cased')
-    args.label_dict = {'O': 0, 'B-POS': 1, 'B-NEU': 2, 'B-NEG': 3, 'I': 4}
+    
+    if not args.aesc_enabled:
+        if args.task == 'AESC':
+            args.label_dict = {'O': 0, 'B-POS': 1, 'B-NEU': 2, 'B-NEG': 3, 'I': 4}
+        elif args.task == 'SC':
+            args.label_dict = {'POS': 0, 'NEU': 1, 'NEG': 2}
+
     label_ids = list(tokenizer.mapping2id.values())
     logger.info('Number labels: {}'.format(len(label_ids)))
     senti_ids = list(tokenizer.senti2id.values())
@@ -108,28 +114,61 @@ def main(rank, args):
     img_encoder.to(device)
 
     if args.checkpoint and args.no_train==False:
-        seq2seq_model = torch.load(os.path.join(args.checkpoint, 'AoM.pt'))
-        # if args.aesc_enabled == False:
-        model = seq2seq_model
-        logger.info(f'Resume training from {args.checkpoint}')
+        if not args.aesc_enabled:
+            seq2seq_model = torch.load(os.path.join(args.checkpoint, 'AoM.pt'))
+            # if args.aesc_enabled == False:
+            model = seq2seq_model
+            logger.info(f'Resume training from {args.checkpoint}')
+        else:
+            seq2seq_model = MultiModalBartModel_AESC(bart_config, args,args.bart_model, tokenizer,label_ids)
+            model = SequenceGeneratorModel(seq2seq_model,
+                                            bos_token_id=bos_token_id,
+                                            eos_token_id=eos_token_id,
+                                            max_length=args.max_len,
+                                            max_len_a=args.max_len_a,
+                                            num_beams=args.num_beams,
+                                            do_sample=False,
+                                            repetition_penalty=1,
+                                            length_penalty=1.0,
+                                            pad_token_id=eos_token_id,
+                                            restricter=None)
+            if args.trc_on:
+                trc_pretrain_model=TRCPretrain.from_pretrained(
+                    args.trc_pretrain_file,
+                    config=bart_config,
+                    bart_model=args.bart_model,
+                    tokenizer=tokenizer,
+                    label_ids=label_ids,
+                    senti_ids=senti_ids,
+                    args=args,
+                    error_on_mismatch=False)
+                if args.encoder=='trc':
+                    model.seq2seq_model.encoder.load_state_dict(trc_pretrain_model.encoder.state_dict())
+                model.seq2seq_model.noun_linear.load_state_dict(trc_pretrain_model.noun_linear.state_dict())
+                model.seq2seq_model.multi_linear.load_state_dict(trc_pretrain_model.multi_linear.state_dict())
+                model.seq2seq_model.att_linear.load_state_dict(trc_pretrain_model.att_linear.state_dict())
+                model.seq2seq_model.linear.load_state_dict(trc_pretrain_model.linear.state_dict())
+                model.seq2seq_model.alpha_linear1.load_state_dict(trc_pretrain_model.alpha_linear1.state_dict())
+                model.seq2seq_model.alpha_linear2.load_state_dict(trc_pretrain_model.alpha_linear2.state_dict())
+                logger.info('trc model loaded.')
     else:
         seq2seq_model = MultiModalBartModel_AESC(bart_config, args,
                                                  args.bart_model, tokenizer,
                                                  label_ids)
-        # if args.aesc_enabled == False:
-        model = seq2seq_model
-        # else:
-        # model = SequenceGeneratorModel(seq2seq_model,
-        #                             bos_token_id=bos_token_id,
-        #                             eos_token_id=eos_token_id,
-        #                             max_length=args.max_len,
-        #                             max_len_a=args.max_len_a,
-        #                             num_beams=args.num_beams,
-        #                             do_sample=False,
-        #                             repetition_penalty=1,
-        #                             length_penalty=1.0,
-        #                             pad_token_id=eos_token_id,
-        #                             restricter=None)
+        if not args.aesc_enabled:
+            model = seq2seq_model
+        else:
+            model = SequenceGeneratorModel(seq2seq_model,
+                                    bos_token_id=bos_token_id,
+                                    eos_token_id=eos_token_id,
+                                    max_length=args.max_len,
+                                    max_len_a=args.max_len_a,
+                                    num_beams=args.num_beams,
+                                    do_sample=False,
+                                    repetition_penalty=1,
+                                    length_penalty=1.0,
+                                    pad_token_id=eos_token_id,
+                                    restricter=None)
     
         # if args.trc_on:
         #     aom_model = AoM_Pretrained.from_pretrained(
@@ -160,7 +199,7 @@ def main(rank, args):
     scaler = GradScaler() if args.amp else None
 
     logger.info('Loading data...')
-    collate_aesc = Collator(tokenizer,
+    collate_aesc = Collator(args, tokenizer,
                             aesc_enabled=args.aesc_enabled,
                             text_only=args.text_only,
                             max_img_num=args.img_num,
@@ -212,9 +251,9 @@ def main(rank, args):
         logger.info('TEST  ae_p:{} ae_r:{} ae_f:{}'.format(
             res_test['ae_pre'], res_test['ae_rec'],
             res_test['ae_f']))
-        logger.info('TEST  sc_acc:{} sc_r:{} sc_f:{}'.format(
+        logger.info('TEST  sc_acc:{} sc_r:{} sc_f_micro:{} sc_f_macro:{}'.format(
             res_test['sc_acc'], res_test['sc_rec'],
-            res_test['sc_f']))
+            res_test['sc_f_mi'], res_test['sc_f_ma']))
         #if args.aesc_enabled:
         #    logger.info('TEST  aesc_p:{} aesc_r:{} aesc_f:{}'.format(
         #        res_test['aesc_pre'], res_test['aesc_rec'], res_test['aesc_f']))
@@ -388,7 +427,7 @@ def parse_args():
                         type=int,
                         default=1,
                         help='save the model or not')
-    parser.add_argument('--task', type=str, default='', help='task type')
+    parser.add_argument('--task', type=str, default='AESC', help='task type')
     parser.add_argument('--rank',
                         default=0,
                         type=int,
@@ -441,7 +480,7 @@ def parse_args():
                         type=int,
                         default=0,
                         )
-    parser.add_argument('--aesc_enabled', type=bool, default=False, help='aesc or sc')
+    parser.add_argument('--aesc_enabled', type=bool, default=True, help='bart or crf')
 
     #RDGNN
     parser.add_argument('--max_tree_dis', default=10, type=int, help='max tree distance')
@@ -464,7 +503,7 @@ def parse_args():
     parser.add_argument('--crf_on', action='store_true', help='aesc task using crf')
     parser.add_argument('--sc_only', action='store_true', help='sc task only')
     parser.add_argument('--text_encoder', default='bart', help='bart or bert')
-    parser.add_argument('--w_l', default=0.5, help='weight for loss crf')
+    parser.add_argument('--w_l', default=0.5, type=float, help='weight for loss crf')
 
     args = parser.parse_args()
     if args.encoder=='trc':

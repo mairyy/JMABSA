@@ -58,7 +58,7 @@ class AESCSpanMetric(object):
         # pdb.set_trace()
         # assert opinion_first is False, "Current metric only supports aspect first"
 
-    def evaluate_old(self, aesc_target_span, pred, tgt_tokens):
+    def evaluate(self, aesc_target_span, pred, tgt_tokens):
         # print('aesc_target_span', aesc_target_span[0])
         # print(pred[0])
         # print(tgt_tokens[0])
@@ -219,7 +219,7 @@ class AESCSpanMetric(object):
 
         self.batch_step+=1
 
-    def evaluate(self, aesc_target, pred):
+    def evaluate_new(self, aesc_target, pred):
         predict_pairs = self.extract_aspect_spans(pred)
         target_pairs = self.extract_aspect_spans(aesc_target)
         print(predict_pairs, target_pairs)
@@ -322,7 +322,9 @@ class AESCSpanMetric(object):
 
         rec_sum /= (len(tags) + 1e-12)
         pre_sum /= (len(tags) + 1e-12)
-        res['sc_f'] = round(
+        f_sum /= (len(tags) + 1e-12)
+        res['sc_f_ma'] = round(f_sum *100, 2)
+        res['sc_f_mi'] = round(
             2 * pre_sum * rec_sum / (pre_sum + rec_sum + 1e-12) * 100, 2)
         res['sc_rec'] = round(rec_sum * 100, 2)
         res['sc_pre'] = round(pre_sum * 100, 2)

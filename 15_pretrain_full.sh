@@ -12,7 +12,7 @@ do
           --train_batch_size 8  \
           --dev_batch_size 8  \
           --test_batch_size 8  \
-          --epochs 35 \
+          --epochs 40 \
           --grad_clip 5 \
           --warmup 0.1 \
           --seed 57 \
@@ -28,6 +28,6 @@ do
           --aesc_enabled true\
           --img_num 49\
           --trc_on\
-          --sentinet_on\
-          --checkpoint /Users/admin/Downloads/JMABSA/train15/2025-04-05-16-49-18
+          --task AESC\
+          --w_l 0.8
 done

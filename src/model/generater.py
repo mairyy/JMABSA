@@ -2,8 +2,8 @@ r"""undocumented"""
 
 import torch
 from torch import nn
-from fastNLP.models.torch import Seq2SeqModel
-from fastNLP.modules.torch import Seq2SeqDecoder, State
+from fastNLP.models.seq2seq_model import Seq2SeqModel
+from fastNLP.modules.decoder.seq2seq_decoder import Seq2SeqDecoder, State
 import torch.nn.functional as F
 #from fastNLP.core.utils import _get_model_device
 from functools import partial
@@ -495,7 +495,7 @@ def _beam_search_generate(decoder: Seq2SeqDecoder,
         # print(_next_scores.shape)
         # pdb.set_trace()
     # 根据index来做顺序的调转
-    indices = torch.arange(batch_size, dtype=torch.long).to('mps')
+    indices = torch.arange(batch_size, dtype=torch.long).to('cpu')
     indices = indices.repeat_interleave(num_beams)
     # print(indices)
     state.reorder_state(indices)

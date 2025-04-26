@@ -1,5 +1,6 @@
 from typing import Optional, Tuple
-from fastNLP.modules.torch import Seq2SeqEncoder, Seq2SeqDecoder, State
+# from fastNLP.modules.torch import Seq2SeqEncoder, Seq2SeqDecoder, State
+from fastNLP.modules import Seq2SeqEncoder, Seq2SeqDecoder, State
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -417,8 +418,8 @@ class AoM_Pretrained(PretrainedBartModel):
         for i,x in enumerate(noun_position):
             if len(x)<max_noun_num:
                 noun_position[i]+=[0]*(max_noun_num-len(x))
-        noun_position=torch.tensor(noun_position).to('mps')
-        noun_embed=torch.zeros(feature.shape[0],max_noun_num,feature.shape[-1]).to('mps')
+        noun_position=torch.tensor(noun_position).to('cpu')
+        noun_embed=torch.zeros(feature.shape[0],max_noun_num,feature.shape[-1]).to('cpu')
         for i in range(len(feature)):
             noun_embed[i]=torch.index_select(feature[i],dim=0,index=noun_position[i])
             noun_embed[i,noun_num[i]:]=torch.zeros(max_noun_num-noun_num[i],feature.shape[-1])
