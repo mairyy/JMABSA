@@ -495,6 +495,7 @@ def parse_args():
     parser.add_argument('--RL_K_min', default=0.1, type=float, help='min of K')
     parser.add_argument('--RL_S', default=0.1, type=float, help='step to update K')
     parser.add_argument('--RL_R', default=10, type=int, help='get last RL_R of RL history to decide stopping or continueing RL')
+    parser.add_argument('--K', default=0.1, type=float, help='pre-defined K')
     
     #sim_gcn
     parser.add_argument('--gcn_layer_num', default=2, type=int, help='gcn layer number')
@@ -505,6 +506,8 @@ def parse_args():
     parser.add_argument('--text_encoder', default='bart', help='bart or bert')
     parser.add_argument('--w_l', default=0.5, type=float, help='weight for loss crf')
 
+    parser.add_argument('--abl_mode', default=0, type=int, help='weight for loss crf')
+
     args = parser.parse_args()
     if args.encoder=='trc':
         args.trc_on=True
@@ -514,6 +517,9 @@ def parse_args():
 
     nn_attention_list=['cat','multi-head','cos_']
     args.nn_attention_mode=nn_attention_list[args.nn_attention_mode]
+
+    abl_list = ['all', 'distance', 'type', 'align', 'syntactic', 'semantic', 'gate']
+    args.abl_mode = abl_list[args.abl_mode]   
 
     if args.gpu_num != 1 and args.cpu:
         raise ValueError('--gpu_num are not allowed if --cpu is set to true')

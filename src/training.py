@@ -167,6 +167,7 @@ def fine_tune(epochs,
         logger.info('TEST  sc_acc:{} sc_r:{} sc_f_micro:{} sc_f_macro:{}'.format(
             res_test['sc_acc'], res_test['sc_rec'],
             res_test['sc_f_mi'], res_test['sc_f_ma']))
+        logger.info('K value:{}'.format(args.K))
     elif args.task == 'SC':
         logger.info('BEST DEV  sc_acc:{} sc_f_micro:{} sc_f_macro:{}'.format(
             best_dev_res['sc_acc'], best_dev_res['sc_f_mi'], best_dev_res['sc_f_ma']))

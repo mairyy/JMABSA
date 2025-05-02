@@ -23,8 +23,10 @@ class RDGNN(nn.Module):
         self.bart_drop = nn.Dropout(args.bart_dropout)
         self.gnn_drop = nn.Dropout(args.gnn_dropout)
         self.layernorm = LayerNorm(args.bart_dim)
-        self.dep_embedding = nn.Embedding(args.dep_vocab_size, args.dep_embed_dim)
-        self.dep_imp_function = DEP_IMP(args.dep_embed_dim)
+        self.abl_mode = args.abl_mode
+        if self.abl_mode != 'type':
+            self.dep_embedding = nn.Embedding(args.dep_vocab_size, args.dep_embed_dim)
+            self.dep_imp_function = DEP_IMP(args.dep_embed_dim)
         self.gnn_layer_num = args.gnn_layer_num
 
         self.W = nn.ModuleList()
@@ -57,15 +59,24 @@ class RDGNN(nn.Module):
             text_feats = bart_output[:, self.img_num+2:, :]
         else:
             text_feats = bart_output
-        syn_dep_adj_ = self.dep_imp_function(self.dep_embedding.weight, syn_dep_adj, overall_max_len, self.batch_size)
-        dep_adj = syn_dep_adj_.float()
+        
+        if self.abl_mode != 'type':
+            syn_dep_adj_ = self.dep_imp_function(self.dep_embedding.weight, syn_dep_adj, overall_max_len, self.batch_size)
+            dep_adj = syn_dep_adj_.float()
 
-        if search_flag:
-            syn_dis_adj_ = self.dis_imp_function_search(syn_dis_adj)
+        if self.abl_mode != 'distance':
+            if search_flag:
+                syn_dis_adj_ = self.dis_imp_function_search(syn_dis_adj)
+            else:
+                syn_dis_adj_ = self.dis_imp_function(syn_dis_adj)
+            dis_adj = syn_dis_adj_.float()
+        
+        if self.abl_mode == 'type':
+            A = dis_adj
+        elif self.abl_mode == 'distance':
+            A = dep_adj
         else:
-            syn_dis_adj_ = self.dis_imp_function(syn_dis_adj)
-        dis_adj = syn_dis_adj_.float()
-        A = torch.add(dep_adj, dis_adj)
+            A = torch.add(dep_adj, dis_adj)
         #print(A.shape, bart_output.shape)
         gnn_input = self.bart_drop(text_feats)
         gnn_output = gnn_input
@@ -140,7 +151,7 @@ class Sim_GCN(nn.Module):
 
         # 图像只与名词挂钩
         noun_mask=noun_mask[:,51:].unsqueeze(1).repeat(1,sim.shape[1],1)
-        sim=sim*noun_mask
+        sim=sim*noun_mask.to(sim.device)
         new_dependency_matrix[:,:51,51:]=sim
         new_dependency_matrix[:,51:,:51]=torch.transpose(sim,1,2)
 

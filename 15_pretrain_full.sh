@@ -29,5 +29,7 @@ do
           --img_num 49\
           --trc_on\
           --task AESC\
-          --w_l 0.8
+          --w_l 0.8\
+          --K 0.4\
+          --abl_mode 6
 done

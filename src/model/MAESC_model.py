@@ -135,6 +135,7 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         self.nn_attention_mode=args.nn_attention_mode
         self.gcn_dropout=args.gcn_dropout
         self.gcn_proportion=args.gcn_proportion
+        self.abl_mode = args.abl_mode
 
         self.decoder = MultiModalBartDecoder_span(self.config,
                                                   tokenizer,
@@ -175,10 +176,12 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         #self.dep_linear2=nn.Linear(768,768)
         #self.dep_att_linear=nn.Linear(768*2,1)
 
-        self.RDGNN = RDGNN(args, 1.1)
+        self.RDGNN = RDGNN(args, args.K)
         self.Sim_GCN = Sim_GCN(args, 768, 768)
-        #self.fusion = nn.Linear(768*2, 768)
-        self.fusion = GateModule(args)
+        if self.abl_mode == 'gate':
+            self.fusion = nn.Linear(768*2, 768)
+        else:
+            self.fusion = GateModule(args)
         self.aesc_enabled = args.aesc_enabled
         if not self.aesc_enabled:
             self.num_labels = len(args.label_dict)
@@ -239,11 +242,14 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         hidden_states = dict.hidden_states
         encoder_mask = attention_mask
         src_embed_outputs = hidden_states[0]
+        syn_feature, sim_feature = None, None
 
-        syn_feature = self.RDGNN(encoder_outputs, syn_dep_adj_matrix, syn_dis_adj_matrix, False, False)
+        if self.abl_mode != 'syntactic':
+            syn_feature = self.RDGNN(encoder_outputs, syn_dep_adj_matrix, syn_dis_adj_matrix, False, False)
 
-        noun_embed=self.get_noun_embed(encoder_outputs,noun_mask)
-        encoder_outputs=self.noun_attention(encoder_outputs,noun_embed,mode=self.nn_attention_mode)
+        if self.abl_mode != 'align':
+            noun_embed=self.get_noun_embed(encoder_outputs,noun_mask)
+            encoder_outputs=self.noun_attention(encoder_outputs,noun_embed,mode=self.nn_attention_mode)
 
         #if self.sentinet_on:
         #    sentiment_value=nn.ZeroPad2d(padding=(51,0,0,0))(sentiment_value)
@@ -251,13 +257,20 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         #    sentiment_feature=self.senti_value_linear(sentiment_value)
         #    encoder_outputs = encoder_outputs + sentiment_feature
 
-        sim_feature = self.Sim_GCN(encoder_outputs, encoder_outputs, attention_mask, noun_mask)
+        if self.abl_mode != 'semantic':
+            sim_feature = self.Sim_GCN(encoder_outputs, encoder_outputs, attention_mask, noun_mask)
 
         #mix_feature = self.fusion(torch.cat([syn_feature, sim_feature], dim=-1))
-        mix_feature = self.fusion(syn_feature, sim_feature)
-        # print("sim", sim_feature, sim_feature.shape)
-        # print("syn", syn_feature, syn_feature.shape)
-        # print("mix", mix_feature, mix_feature.shape)
+
+        if self.abl_mode == 'semantic':
+            mix_feature = syn_feature * self.gcn_proportion + dict.last_hidden_state
+        elif self.abl_mode == 'syntactic':
+            mix_feature = sim_feature * self.gcn_proportion + dict.last_hidden_state
+        else:
+            if self.abl_mode != 'gate':
+                mix_feature = self.fusion(syn_feature, sim_feature) * self.gcn_proportion + dict.last_hidden_state
+            else:
+                mix_feature = (syn_feature + sim_feature) * self.gcn_proportion + dict.last_hidden_state
 
         if self.task == 'AESC':
         #     predict = self.projection(mix_feature)
@@ -447,7 +460,7 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
 
             logits = self.decoder(spans, logits, sentiment_value)
             # logits = self.decoder(spans, state)
-            print(spans, spans.shape, logits, logits.shape, span_mask, span_mask.shape)
+            # print(spans, spans.shape, logits, logits.shape)
             loss = self.span_loss_fct(spans[:, 1:], logits, span_mask[:, 1:])
             return loss
 

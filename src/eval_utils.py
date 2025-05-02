@@ -38,7 +38,7 @@ def eval(args, model, img_encoder,loader, metric, device):
                 syn_dep_adj_matrix=batch['syn_dep_matrix'].to(device),
                 syn_dis_adj_matrix=batch['syn_dis_matrix'].to(device),
                 aesc_infos=aesc_infos)
-            print(aesc_infos['spans'].shape, aesc_infos['spans'], aesc_infos['labels'].shape, aesc_infos['labels'])
+            # print(aesc_infos['spans'], aesc_infos['labels'])
             # metric.evaluate(aesc_infos.to(device), predict)
 
             metric.evaluate(aesc_infos['spans'], predict,
