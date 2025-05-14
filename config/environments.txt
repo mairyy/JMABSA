@@ -1,0 +1,10 @@
+python=3.8.20
+pytorch
+transformers=3.0.2
+spacy=2.3.7
+conda install conda-forge::spacy=2.3.7
+python -m spacy download en_core_web_sm
+pip install rich
+pip install pytorch_transformers
+pip install git+https://github.com/fastnlp/fastNLP@dev
+pip install git+https://github.com/fastnlp/fitlog
