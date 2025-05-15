@@ -1,0 +1,673 @@
+import torch
+import numpy as np
+from transformers import BartTokenizer, AutoTokenizer
+from itertools import chain, groupby
+from functools import cmp_to_key
+import spacy
+nlp = spacy.load("en_core_web_sm")
+import networkx as nx
+import pickle
+
+def cmp(v1, v2):
+    if v1[0] == v2[0]:
+        return v1[1] - v2[1]
+    return v1[0] - v2[0]
+
+def matrix_pad(mat, pad_cl):
+    # 在pad_cl后面插入0
+    assert mat.shape[0] == mat.shape[1]
+    mat_len = mat.shape[0]
+    indice = list(np.arange(0, mat_len))
+    indice.insert(pad_cl + 1, 0)
+    mat = mat[:, indice]
+    mat[:, pad_cl + 1] = 0
+    mat = mat[indice, :]
+    mat[pad_cl + 1, :] = 0
+    return mat
+
+def dep_adj_expansion(syn_adj, max_len, weight):
+    for node_id in range(max_len):
+        syn_adj.append([node_id, node_id, weight])
+    #print(syn_adj)
+    syn_nx = nx.Graph()
+    syn_nx.add_nodes_from(range(max_len))
+    syn_nx.add_weighted_edges_from(syn_adj)
+    syn_adj_ = nx.adjacency_matrix(syn_nx).A
+    return syn_adj_
+
+def dis_adj_expansion(syn_adj, max_len, weight, max_tree_dis):
+    syn_adj_ = []
+    for node_s_id in range(max_len):
+        for node_e_id in range(max_len):
+            if node_s_id == node_e_id:
+                syn_adj_.append([node_s_id, node_e_id, weight])
+            else:
+                syn_adj_.append([node_s_id, node_e_id, max_tree_dis])
+    syn_nx_ = nx.Graph()
+    syn_nx_.add_nodes_from(range(max_len))
+    syn_nx_.add_weighted_edges_from(syn_adj_)
+    syn_adj_ = nx.adjacency_matrix(syn_nx_).A
+    syn_nx = nx.Graph()
+    syn_nx.add_weighted_edges_from(syn_adj)
+    syn_adj = nx.adjacency_matrix(syn_nx).A
+    ins_len = len(syn_adj)
+    syn_adj_[:ins_len, :ins_len] = syn_adj
+
+    return syn_adj_
+
+def list_matrix_pad(mat, pad_index, value=None):
+    assert len(mat) == len(mat[0]), "Matrix must be square."
+
+    # new_row = []
+
+    # for row in mat:
+    #     row.insert(pad_index + 1, row[pad_index])
+    
+    # mat.insert(pad_index + 1, mat[pad_index])
+
+    if value == None:
+        # if pad_index == len(mat):
+        #     pad_index -= 1
+        mat = np.insert(mat, pad_index + 1, mat[:, pad_index], axis=1)
+        mat = np.insert(mat, pad_index + 1, mat[pad_index, :], axis=0)
+    else:
+        mat = np.insert(mat, pad_index + 1, value, axis=1)
+        mat = np.insert(mat, pad_index + 1, value, axis=0)
+
+    return mat
+
+class ConditionTokenizer:
+    """
+    tokenizer for image features, event and task type
+    this is NOT inherent from transformers Tokenizer
+    """
+
+    def __init__(self,
+                 args,
+                 pretrained_model_name='facebook/bart-base',
+                 cls_token="<<cls>>",
+                 mlm_token="<<mlm>>",
+                 mrm_token="<<mrm>>",
+                 trc_token="<<trc>>",
+                 begin_text="<<text>>",
+                 end_text="<</text>>",
+                 img_feat='<<img_feat>>',
+                 begin_img="<<img>>",
+                 end_img="<</img>>",
+                 sc_token='<<SC>>',
+                 ae_oe_token="<<AOE>>",
+                 sep_token="<<SEP>>",
+                 aesc_token='<<AESC>>',
+                 pos_token='<<POS>>',
+                 neu_token='<<NEU>>',
+                 neg_token='<<NEG>>',
+                 senti_token='<<senti>>',
+                 ANP_token='<<ANP>>',
+                 ANP_generate_token='<<AOG>>',
+                 ):
+        # self._base_tokenizer = BartTokenizer.from_pretrained(
+        #     pretrained_model_name, )
+        self._base_tokenizer = AutoTokenizer.from_pretrained(
+            pretrained_model_name, )
+
+        self.additional_special_tokens = [
+            cls_token, mlm_token, mrm_token, begin_text, end_text, img_feat,
+            begin_img, end_img, senti_token, ANP_token, ANP_generate_token,
+            pos_token, neu_token, neg_token, ae_oe_token, sep_token,
+            aesc_token, sc_token
+        ]
+        unique_no_split_tokens = self._base_tokenizer.unique_no_split_tokens
+        self._base_tokenizer.unique_no_split_tokens = unique_no_split_tokens + self.additional_special_tokens
+        self.unique_no_split_tokens = self._base_tokenizer.unique_no_split_tokens
+
+        self._base_tokenizer.add_tokens(self.additional_special_tokens)
+        self.cls_token = cls_token
+        self.mlm_token = mlm_token
+        self.mrm_token = mrm_token
+        self.trc_token = trc_token
+        self.begin_text = begin_text
+        self.end_text = end_text
+        self.img_feat = img_feat
+        self.begin_img = begin_img
+        self.end_img = end_img
+
+        self.sc_token = sc_token
+        self.ae_oe_token = ae_oe_token
+        self.sep_token = sep_token
+        self.senti_token = senti_token
+        self.ANP_token = ANP_token
+        self.ANP_generate_token = ANP_generate_token
+
+        self.aesc_token = aesc_token
+        self.pos_token = pos_token
+        self.neu_token = neu_token
+        self.neg_token = neg_token
+
+        self.cls_token_id = self.convert_tokens_to_ids(cls_token)
+        self.mlm_token_id = self.convert_tokens_to_ids(mlm_token)
+        self.mrm_token_id = self.convert_tokens_to_ids(mrm_token)
+        self.trc_token_id = self.convert_tokens_to_ids(trc_token)
+        self.begin_text_id = self.convert_tokens_to_ids(begin_text)
+        self.end_text_id = self.convert_tokens_to_ids(end_text)
+        self.img_feat_id = self.convert_tokens_to_ids(img_feat)
+        self.begin_img_id = self.convert_tokens_to_ids(begin_img)
+        self.end_img_id = self.convert_tokens_to_ids(end_img)
+
+        self.sc_token_id = self.convert_tokens_to_ids(sc_token)
+        self.ae_oe_token_id = self.convert_tokens_to_ids(ae_oe_token)
+        self.sep_token_id = self.convert_tokens_to_ids(sep_token)
+        self.senti_token_id = self.convert_tokens_to_ids(senti_token)
+        self.ANP_token_id = self.convert_tokens_to_ids(ANP_token)
+        self.ANP_generate_token_id = self.convert_tokens_to_ids(
+            ANP_generate_token)
+        self.aesc_token_id = self.convert_tokens_to_ids(aesc_token)
+        self.pos_token_id = self.convert_tokens_to_ids(pos_token)
+        self.neu_token_id = self.convert_tokens_to_ids(neu_token)
+        self.neg_token_id = self.convert_tokens_to_ids(neg_token)
+
+        self.vocab_size = self._base_tokenizer.vocab_size
+        self.bos_token = self._base_tokenizer.bos_token
+        self.bos_token_id = self._base_tokenizer.bos_token_id
+
+        self.eos_token = self._base_tokenizer.eos_token
+        self.eos_token_id = self._base_tokenizer.eos_token_id
+        self.pad_token = self._base_tokenizer.pad_token
+        self.pad_token_id = self._base_tokenizer.pad_token_id
+        self.unk_token = self._base_tokenizer.unk_token
+        self.unk_token_id = self._base_tokenizer.unk_token_id
+        self.sentinet_on = args.sentinet_on
+        self.gcn_on = args.gcn_on
+
+        if self.sentinet_on:
+            path = 'src/senticnet_word.txt'
+            self.senticNet = {}
+            fp = open(path, 'r')
+            for line in fp:
+                line = line.strip()
+                if not line:
+                    continue
+                word, sentic = line.split('\t')
+                self.senticNet[word] = sentic
+            fp.close()
+
+        print('self.bos_token_id', self.bos_token_id)
+        print('self.eos_token_id', self.eos_token_id)
+        print('self.pad_token_id', self.pad_token_id)
+        if args.task == 'pretrain':
+            self.mapping = {'AE_OE': '<<AOE>>', 'SEP': '<<SEP>>'}
+        else:
+            self.mapping = {
+                'AESC': '<<AESC>>',
+                'POS': '<<POS>>',
+                'NEU': '<<NEU>>',
+                'NEG': '<<NEG>>'
+            }
+        self.senti = {'POS': '<<POS>>', 'NEU': '<<NEU>>', 'NEG': '<<NEG>>'}
+        self.senti2id = {}
+        for key, value in self.senti.items():
+            key_id = self._base_tokenizer.convert_tokens_to_ids(
+                self._base_tokenizer.tokenize(value))
+            assert len(key_id) == 1, value
+            # assert key_id[0] >= self.cur_num_tokens
+            self.senti2id[key] = key_id[0]
+        self.mapping2id = {}
+        self.mapping2targetid = {}
+        for key, value in self.mapping.items():
+            key_id = self._base_tokenizer.convert_tokens_to_ids(
+                self._base_tokenizer.tokenize(value))
+            assert len(key_id) == 1, value
+            # assert key_id[0] >= self.cur_num_tokens
+            self.mapping2id[key] = key_id[0]
+            self.mapping2targetid[key] = len(self.mapping2targetid) + 2
+        print(self.mapping2id, 'cls:', self.cls_token_id, 'img:', self.img_feat_id)
+
+        self.root_id = args.vocab_dep.get('ROOT')
+
+    def encode(self, *args, **kwargs):
+        return self._base_tokenizer(*args, **kwargs)
+
+    def pad_tokens(self, tokens, noun_masks=None, syn_dep_adj_matrix=None, syn_dis_adj_matrix=None, aspect_masks=None, labels=None):
+        #print(syn_dis_adj_matrix, syn_dep_adj_matrix)
+        #print(aspect_masks)
+        max_len = max([len(x) for x in tokens])
+
+        pad_result = torch.full((len(tokens), max_len), self.pad_token_id)
+        mask = torch.zeros(pad_result.size(), dtype=torch.bool)
+        for i, x in enumerate(tokens):
+            pad_result[i, :len(x)] = torch.tensor(tokens[i], dtype=torch.long)
+            mask[i, :len(x)] = True
+
+        if noun_masks is not None:
+            noun_mask = torch.zeros((len(tokens), max_len), dtype=torch.bool)
+            for i, x in enumerate(tokens):
+                noun_mask[i, :len(x)] = torch.tensor(noun_masks[i], dtype=torch.bool)
+
+        if syn_dep_adj_matrix is not None:
+            ret_dep_matrix = torch.zeros([len(tokens), max_len, max_len], dtype=torch.long)
+            for i in range(len(tokens)):
+                dim = syn_dep_adj_matrix[i].shape[0]
+                ret_dep_matrix[i, :dim, :dim] = torch.from_numpy(syn_dep_adj_matrix[i])
+
+        if syn_dis_adj_matrix is not None:
+            ret_dis_matrix = torch.zeros([len(tokens), max_len, max_len], dtype=torch.long)
+            for i in range(len(tokens)):
+                dim = syn_dis_adj_matrix[i].shape[0]
+                ret_dis_matrix[i, :dim, :dim] = torch.from_numpy(syn_dis_adj_matrix[i])
+
+        if aspect_masks is not None:
+            aspect_mask = torch.zeros((len(tokens), max_len), dtype=torch.long)
+            for i, x in enumerate(tokens):
+                aspect_mask[i, :len(x)] = torch.tensor(aspect_masks[i], dtype=torch.long)
+        
+        if labels is not None:
+            label = torch.zeros((len(tokens), max_len), dtype=torch.long)
+            for i, x in enumerate(tokens):
+                label[i, :len(x)] = torch.tensor(labels[i], dtype=torch.long)
+
+        if noun_masks is None:
+            noun_mask = None
+        if syn_dep_adj_matrix is None:
+            ret_dep_matrix = None
+        if syn_dis_adj_matrix is None:
+            ret_dis_matrix = None
+        if aspect_masks is None:
+            aspect_mask = None
+        if labels is None:
+            label = None
+        #print(ret_dep_matrix, ret_dis_matrix)
+        return pad_result, mask, noun_mask, ret_dep_matrix, ret_dis_matrix, aspect_mask, label
+
+    def encode_condition(self, img_num=None, sentence=None, text_only=False, syn_dis_adj=None, syn_dep_adj=None, aspects=None, polarity=None, _labels=None):
+        """
+        tokenize text, image features and event
+        the output format (after decoded back):
+        task_type [<img> <img_feat> ... <img_feat> </img>] [<event> EVENT </event>] [<mlm> MLM </mlm>]
+
+        :param task_type: str or list[str]
+        :param img_num: int or list[int], the number of image features
+        :param event: str or list[str], event descriptions
+        :param mlm: str or list[str], sentence for masked language modeling
+        :return: dict {str: Tensor}, {
+                "input_ids": ...,
+                "attention_mask": ...,
+                "event_mask": ...,          only exist if event is given. 1 for the position with event tokens
+                "mlm_mask": ...,            only exist if mlm is given. 1 for the position with mlm tokens
+                "img_mask":...,             only exist if img_num is given. 1 for the position with img tokens
+            }
+        """
+
+        image_text = None
+        if img_num is not None:
+            if not isinstance(img_num, list):
+                img_num = [img_num]
+            image_text = []
+            for index, value in enumerate(img_num):
+                image_text.append(self.begin_img + self.img_feat * value +
+                                  self.end_img)
+        if sentence is not None:
+            noun_list = ['NNP', 'NNPS', 'NN', 'NNS']
+            if not isinstance(sentence, list):
+                sentence = [sentence]
+            sentence_split = [x.split() for x in sentence]
+            pos_doc = [nlp(x) for x in sentence]
+
+            noun_positions = []
+
+            for i, split in enumerate(sentence_split):
+                if len(sentence_split[i]) != len(pos_doc[i]):
+                    new_sentence = []
+                    for token in pos_doc[i]:
+                        new_sentence.append(str(token))
+                    sentence_split[i] = new_sentence
+                    assert len(sentence_split[i]) == len(pos_doc[i])
+                noun_position = []
+                for j in range(len(pos_doc[i])):
+                    if pos_doc[i][j].tag_ in noun_list:
+                        noun_position.append(j)
+                noun_positions.append(noun_position)
+
+            input_sentence_tokens, syn_dep_adj_matrix, syn_dis_adj_matrix = [], [], []
+            assert len(sentence_split) == len(pos_doc)
+            noun_masks = []
+            # token_index 保存每个句子中每个token在 dependency_matrix对应的起始位置
+
+            # right
+            # token_index=[np.arange(1,len(x)+1) for x in sentence_split]
+
+            token_index = [np.arange(0, len(x)) for x in sentence_split]
+            sentiments = []
+            aspect_masks = []
+            labels = []
+            label_dict = {'O': 0, 'POS': 1, 'NEU': 2, 'NEG': 3, 'I': 4}
+            for i, split in enumerate(sentence_split):
+                pad_pad = 1
+                syn_dep_adj_mat = dep_adj_expansion(syn_dep_adj[i], len(split), self.root_id)
+                syn_dis_adj_mat = dis_adj_expansion(syn_dis_adj[i], len(split), 0, 10)
+
+                syn_dep_adj_mat = list_matrix_pad(syn_dep_adj_mat, -1, 0)
+                syn_dis_adj_mat = list_matrix_pad(syn_dis_adj_mat, -1, 0)
+
+                if aspects != None:
+                    aspect = aspects[i]
+                    len_term = len(aspect)
+                    aspect_mask = [0]
+                    label = [0]
+
+                if _labels != None:
+                    aspect = list(_labels[i].keys())
+                    polarity = list(_labels[i].values())
+                    label = [0]
+                    aspect_mask = [0]
+                    len_term = len(aspect)
+
+                noun_mask = [0]
+                word_bpes = [self.bos_token_id]
+
+                sentiment = [0]
+                words = []
+                for j, word in enumerate(split):
+                    bpes = self._base_tokenizer.tokenize(word, add_prefix_space=True)
+                    bpes = self._base_tokenizer.convert_tokens_to_ids(bpes)
+                    words.extend(bpes)
+                    if j in noun_positions[i]:
+                        noun_mask += [1] * len(bpes)
+                    else:
+                        noun_mask += [0] * len(bpes)
+
+                    if len(bpes) > 1:
+                        # print(i, word, syn_dep_adj_mat, pad_pad)
+                        for d_i in range(len(bpes) - 1):
+                            # print(d_i+pad_pad, syn_dep_adj_mat)
+                            if d_i + pad_pad >= len(bpes):
+                                break
+                            syn_dep_adj_mat = list_matrix_pad(syn_dep_adj_mat, d_i+pad_pad)
+                            syn_dis_adj_mat = list_matrix_pad(syn_dis_adj_mat, d_i+pad_pad)
+                            pad_pad += 1
+
+                    if self.sentinet_on:
+                        if word in self.senticNet:
+                            sentiment.extend(len(bpes) * [float(self.senticNet[word])])
+                        else:
+                            # sentiment.extend(len(bpes)*[0])
+                            for s in bpes:
+                                if s in self.senticNet:
+                                    sentiment.append(float(self.senticNet[s]))
+                                else:
+                                    sentiment.append(0)
+                    
+                    if aspects != None:
+                        if word in aspect:
+                            aspect_mask += [1] * len(bpes)
+                            len_term -= 1
+                            #if len_term == 0:
+                            #    label += [label_dict.get(polarity[i])] 
+                            #    label += [4] * (len(bpes) - 1)
+                            #else:
+                            #    label += [label_dict.get(polarity[i])] * len(bpes)
+                        else:
+                            aspect_mask += [0] * len(bpes)
+                            label += [0] * len(bpes)
+
+                    if _labels != None:
+                        if word in aspect:
+                            aspect_mask += [1] * len(bpes)
+                            label += [label_dict.get(polarity[aspect.index(word)])] * len(bpes)
+                        else:
+                            aspect_mask += [0] * len(bpes)
+                            label += [0] * len(bpes)
+
+                    word_bpes.extend(bpes)
+                word_bpes.append(self.eos_token_id)
+                if self.sentinet_on:
+                    sentiment.append(0)
+                    sentiments.append(sentiment)
+                    # assert len(word_bpes) == len(sentiment)
+
+                # # 扩展依赖矩阵
+                #if self.gcn_on:
+                    #dependency_matrix[i] = matrix_pad(dependency_matrix[i], dependency_matrix[i].shape[0] - 1)
+                    #dependency_matrix[i][-1][-1] = 1
+                # assert len(word_bpes)==dependency_matrix[i].shape[0]
+                noun_mask += [0]
+                if aspects != None:
+                    aspect_mask += [0]
+                    aspect_masks.append(aspect_mask)
+                    label += [0]
+                    labels.append(label)
+                else:
+                    if _labels != None:
+                        aspect_mask += [0]
+                        aspect_masks.append(aspect_mask)
+                        label += [0]
+
+                        result = []
+                        for key, group in groupby(label):
+                            group_list = list(group)
+                            if key == 1 and len(group_list) > 1:
+                                result.extend([1])
+                                result.extend([4] * (len(group_list)-1))
+                            elif key == 2 and len(group_list) > 1:
+                                result.extend([2])
+                                result.extend([4] * (len(group_list)-1))
+                            elif key == 3 and len(group_list) > 1:
+                                result.extend([3])
+                                result.extend([4] * (len(group_list)-1))
+                            else:
+                                result.extend(group_list)
+                        label = result
+
+                        labels.append(label)
+                    else:
+                        aspect_masks = None
+                        labels = None
+                # _word_bpes = list(chain(*word_bpes))
+                # input_sentence_tokens.append(_word_bpes.copy())
+                input_sentence_tokens.append(word_bpes)
+                # assert len(word_bpes)==len(noun_mask)
+                noun_masks.append(noun_mask)
+                
+                syn_dep_adj_mat = list_matrix_pad(syn_dep_adj_mat, len(syn_dep_adj_mat)-1, 0)
+                syn_dis_adj_mat = list_matrix_pad(syn_dis_adj_mat, len(syn_dis_adj_mat)-1, 0)
+
+                syn_dep_adj_matrix.append(syn_dep_adj_mat)
+                syn_dis_adj_matrix.append(syn_dis_adj_mat)
+                # print(word_bpes, len(word_bpes), syn_dep_adj_matrix[0], syn_dis_adj_matrix[0], split, words, len(syn_dep_adj_matrix[0]))
+            # assert len(input_sentence_tokens)==len(noun_masks)
+                #print(len(input_sentence_tokens), syn_dis_adj_matrix[-1], syn_dep_adj_matrix[-1])
+
+
+        encoded = {}
+        #print(len(input_sentence_tokens[0]), syn_dep_adj_matrix[0].shape, len(syn_dep_adj_matrix), syn_dis_adj_matrix[0].shape, len(syn_dis_adj_matrix))
+        if image_text is not None:
+            image_sentence = self.encode(image_text,
+                                         add_special_tokens=False,
+                                         return_tensors='pt',
+                                         padding=True)
+            image_ids = image_sentence['input_ids']
+            image_attention_mask = image_sentence['attention_mask']
+            # input_sentence_tokens, input_sentence_mask, noun_mask= self.pad_tokens(
+            #     input_sentence_tokens, noun_masks)
+
+            #input_sentence_tokens, input_sentence_mask, noun_mask, dependency_matrix = self.pad_tokens(
+            #    input_sentence_tokens, noun_masks, dependency_matrix)
+            if aspects == None:
+                input_sentence_tokens, input_sentence_mask, noun_mask, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks, labels = self.pad_tokens(
+                    input_sentence_tokens, noun_masks, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks, labels)
+            else:
+                input_sentence_tokens, input_sentence_mask, noun_mask, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks, labels = self.pad_tokens(
+                    input_sentence_tokens, noun_masks, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks)
+
+            # 填充情感值
+            if self.sentinet_on:
+                sentiment_value = torch.zeros([input_sentence_tokens.shape[0], input_sentence_tokens.shape[1]],
+                                              dtype=torch.float)
+                for i, x in enumerate(sentiments):
+                    sentiment_value[i, :len(x)] = torch.tensor(x, dtype=torch.float)
+
+            if text_only:
+                image_attention_mask = torch.zeros(image_ids.size())
+            input_ids = torch.cat((image_ids, input_sentence_tokens), 1)
+            attention_mask = torch.cat(
+                (image_attention_mask, input_sentence_mask), 1)
+            noun_mask = torch.cat((torch.zeros(image_ids.size(), dtype=torch.bool), noun_mask), 1)
+            if aspects != None:
+                aspect_masks = torch.cat((torch.zeros(image_ids.size(), dtype=torch.bool), aspect_masks), 1)
+                # labels = torch.cat((torch.zeros(image_ids.size(), dtype=torch.bool), labels), 1)
+            #print(input_ids.shape, aspect_mask.shape)
+            # assert attention_mask.shape==noun_mask.shape
+        else:
+            #input_sentence_tokens, input_sentence_mask, noun_mask, dependency_matrix = self.pad_tokens(
+            #    input_sentence_tokens, noun_masks, dependency_matrix)
+            
+            if aspects == None:
+                input_sentence_tokens, input_sentence_mask, noun_mask, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks, labels = self.pad_tokens(
+                    input_sentence_tokens, noun_masks, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks, labels)
+            else:
+                input_sentence_tokens, input_sentence_mask, noun_mask, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks, labels = self.pad_tokens(
+                    input_sentence_tokens, noun_masks, syn_dep_adj_matrix, syn_dis_adj_matrix, aspect_masks)
+            
+            input_ids = input_sentence_tokens
+            attention_mask = input_sentence_mask
+            #print(input_ids.shape, dependency_matrix.shape)
+        encoded['input_ids'] = input_ids
+        if aspects != None or _labels != None:
+            encoded['aspect_mask'] = aspect_masks
+            encoded['labels'] = labels
+
+        encoded['attention_mask'] = attention_mask
+        encoded['noun_mask'] = noun_mask
+        #encoded['dependency_matrix'] = dependency_matrix
+        encoded['syn_dep_adj_matrix'] = syn_dep_adj_matrix
+        encoded['syn_dis_adj_matrix'] = syn_dis_adj_matrix
+        #print(syn_dep_adj_matrix, syn_dis_adj_matrix)
+        if self.sentinet_on == False:
+            sentiment_value = None
+        encoded['sentiment_value'] = sentiment_value
+        # build mlm mask
+        if sentence is not None:
+            sentence_mask = torch.zeros(input_ids.size(), dtype=torch.bool)
+            for index, value in enumerate(input_ids):
+                start = (value == self.bos_token_id).nonzero(as_tuple=True)[0]
+                end = (value == self.eos_token_id).nonzero(as_tuple=True)[0]
+                sentence_mask[index, start + 1:end] = True
+            encoded['sentence_mask'] = sentence_mask
+
+        # build img mask
+        if img_num is not None:
+            encoded['img_mask'] = encoded['input_ids'] == self.img_feat_id
+
+        return encoded
+
+
+    def encode_label(self, label, img_num=None):  # generate labels for MLM task
+
+        # build text label
+        if not isinstance(label, list):
+            label = [label]
+
+        label_split = [x.split() for x in label]
+        label_tokens = []
+        for split in label_split:
+            word_bpes = [[self.bos_token_id], [self.mlm_token_id]]
+            for word in split:
+                bpes = self._base_tokenizer.tokenize(word,
+                                                     add_prefix_space=True)
+                bpes = self._base_tokenizer.convert_tokens_to_ids(bpes)
+                word_bpes.append(bpes)
+            word_bpes.append([self.eos_token_id])
+            _word_bpes = list(chain(*word_bpes))
+            label_tokens.append(_word_bpes)
+        input_ids, attention_mask = self.pad_tokens(label_tokens)
+
+        output_shape = input_ids[:, 2:].shape
+        labels = torch.empty(output_shape, dtype=torch.long)
+        decoder_input_ids = torch.empty(input_ids[:, 1:].shape,
+                                        dtype=torch.long)
+        decoder_attention_mask = torch.empty(input_ids[:, 1:].shape,
+                                             dtype=torch.long)
+
+        for i in range(labels.size(0)):
+            labels[i] = input_ids[i][(input_ids[i] != self.bos_token_id)
+                                     & (input_ids[i] != self.mlm_token_id)]
+            decoder_input_ids[i] = input_ids[i][
+                input_ids[i] != self.eos_token_id]
+            decoder_attention_mask[i] = attention_mask[i][
+                input_ids[i] != self.eos_token_id]
+        labels[(labels == self.pad_token_id) | (labels == self.begin_img_id) |
+               (labels == self.end_img_id) | (labels == self.mlm_token_id) |
+               (labels == self.img_feat_id)] = -100
+        output = {
+            'mlm_labels': labels,
+            'mlm_decoder_input_ids': decoder_input_ids,
+            'mlm_decoder_attention_mask': decoder_attention_mask
+        }
+
+        return output
+
+    def encode_aesc(self, label, aesc_spans, aesc_max_len):
+        target_shift = len(self.mapping2targetid) + 2
+        # print(target_shift)
+        aesc_text = []
+        masks = []
+        gt_spans = []
+
+        flag = True
+        for text, span in zip(label, aesc_spans):
+            span = sorted(span, key=cmp_to_key(cmp))
+            word_bpes = [[self.begin_text_id]]
+            for word in text.split():
+                bpes = self._base_tokenizer.tokenize(word,
+                                                     add_prefix_space=True)
+                bpes = self._base_tokenizer.convert_tokens_to_ids(bpes)
+                word_bpes.append(bpes)
+            word_bpes.append([self.end_text_id])
+            lens = list(map(len, word_bpes))
+            cum_lens = np.cumsum(list(lens)).tolist()
+            cur_text = [
+                0, self.mapping2targetid['AESC'], self.mapping2targetid['AESC']
+            ]
+            mask = [0, 0, 0]
+            gt = []
+            for x in span:
+                s_bpe = cum_lens[x[0]] + target_shift
+                e_bpe = cum_lens[x[1] - 1] + target_shift
+                polarity = self.mapping2targetid[x[2]]
+                cur_text.append(s_bpe)
+                cur_text.append(e_bpe)
+                cur_text.append(polarity)
+                gt.append((s_bpe, e_bpe, polarity))
+                mask.append(1)
+                mask.append(1)
+                mask.append(1)
+            cur_text.append(1)
+            mask.append(1)
+            aesc_text.append(cur_text)
+            gt_spans.append(gt)
+            masks.append(mask)
+        span_max_len = max([len(x) for x in aesc_text])
+        for i in range(len(masks)):
+            add_len = span_max_len - len(masks[i])
+            masks[i] = masks[i] + [0 for ss in range(add_len)]
+            aesc_text[i] = aesc_text[i] + [1 for ss in range(add_len)]
+
+        output = {}
+        output['labels'] = torch.tensor(aesc_text)
+        output['masks'] = torch.tensor(masks)
+        output['spans'] = gt_spans
+        return output
+
+    def decode(self, token_ids, skip_special_tokens=False):
+        return self._base_tokenizer.decode(
+            token_ids, skip_special_tokens=skip_special_tokens)
+
+    def convert_tokens_to_ids(self, tokens):
+        return self._base_tokenizer.convert_tokens_to_ids(tokens)
+
+    def convert_ids_to_tokens(self, ids):
+        return self._base_tokenizer.convert_ids_to_tokens(ids)
+
+    def get_base_tokenizer(self):
+        return self._base_tokenizer
+
+    def __len__(self):
+        return len(self._base_tokenizer)
